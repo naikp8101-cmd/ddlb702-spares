@@ -478,14 +478,7 @@
       a.click();
     }
 
-    function downloadLowStockCSV() {
-      if (!processedLowList.length) return;
-      const rows = [['Part Number', 'Part Name', 'Bin', 'Current Stock', '6M Sale', 'Suggested Order', 'On Order Qty', 'Net Order Needed']];
-      processedLowList.forEach(i => rows.push([i.partNum, i.partName, i.bin, i.stock, i.consumed, i.suggestedOrder, i.onOrder, i.netOrder]));
-      downloadCSV('DDLB702_Low_Stock_Order.csv', rows);
-    }
-
-    function downloadDeadStockCSV() {
+        function downloadDeadStockCSV() {
       const dead = (analyticsCache && analyticsCache.deadStock) || [];
       if (!dead.length) return;
       const rows = [['Part Number', 'Part Name', 'Bin', 'Stock', 'MRP', 'Dead Value']];
@@ -507,7 +500,8 @@
       const low = analyticsCache.lowStock || [];
       processedLowList = low.map(item => {
         const suggested = Number(item.suggestedOrder) || 0;
-        return { ...item, onOrder: 0, suggestedOrder: suggested, netOrder: suggested };
+        const ord = Number(item.onOrder) || 0;
+        return { ...item, onOrder: ord, suggestedOrder: suggested, netOrder: Math.max(0, suggested - ord) };
       });
 
       document.getElementById('lowSummary').style.display = 'flex';
@@ -532,8 +526,7 @@
           </div>
         </div>
       `).join('') : '<div class="empty">No Dead Stock parts!</div>';
-
-                }
+    }
 
     function openModal(row, partNum, stock, bin) {
       document.getElementById('editRow').value = row;
@@ -559,7 +552,7 @@
         const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
         const out = await res.json();
         showToast(out.message || 'Updated Successfully!');
-        searchStock();
+        searchStock(true);
       } catch (e) {
         alert('Update failed: ' + e);
       }
