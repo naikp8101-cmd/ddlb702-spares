@@ -391,7 +391,7 @@
       renderDispatchCards(currentDispatchList.filter(d => Object.values(d).some(v => String(v).toUpperCase().includes(q))));
     }
 
-    function renderDispatchCards(list) {
+      function renderDispatchCards(list) {
       const box = document.getElementById('dispatchResults');
       if (!list.length) { box.innerHTML = '<div class="empty">No dispatch records found.</div>'; return; }
       box.innerHTML = list.map(d => {
@@ -425,7 +425,7 @@
       renderLowStockCards();
     }
 
-        function renderLowStockCards() {
+    function renderLowStockCards() {
       const list = onlyNotOrdered ? processedLowList.filter(i => i.netOrder > 0) : processedLowList;
       document.getElementById('lowSummary').innerHTML = `<span>⚠️ Low Stock: ${list.length} Items</span><span onclick="toggleNotOrderedFilter()" style="cursor:pointer; text-decoration:underline;">${onlyNotOrdered ? 'Not Ordered Only ▾' : 'All Low Stock ▾'}</span>`;
       document.getElementById('lowResults').innerHTML = list.length ? list.map(item => `
@@ -529,4 +529,36 @@
         } catch (err) {}
       })).then(() => renderLowStockCards());
     }
-    
+
+    function openModal(row, partNum, stock, bin) {
+      document.getElementById('editRow').value = row;
+      document.getElementById('modalTitle').innerText = `Update: ${partNum}`;
+      document.getElementById('editStock').value = stock;
+      document.getElementById('editBin').value = bin;
+      document.getElementById('editNote').value = '';
+      document.getElementById('updateModal').style.display = 'flex';
+    }
+    function closeModal() { document.getElementById('updateModal').style.display = 'none'; }
+
+    async function saveUpdate() {
+      const payload = {
+        action: 'update',
+        row: document.getElementById('editRow').value,
+        newStock: document.getElementById('editStock').value,
+        newBin: document.getElementById('editBin').value,
+        note: document.getElementById('editNote').value,
+        staff: staffName
+      };
+      closeModal();
+      try {
+        const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
+        const out = await res.json();
+        showToast(out.message || 'Updated Successfully!');
+        searchStock();
+      } catch (e) {
+        alert('Update failed: ' + e);
+      }
+    }
+  </script>
+</body>
+</html>
