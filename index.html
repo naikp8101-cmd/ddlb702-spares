@@ -425,9 +425,9 @@
       renderLowStockCards();
     }
 
-    function renderLowStockCards() {
+        function renderLowStockCards() {
       const list = onlyNotOrdered ? processedLowList.filter(i => i.netOrder > 0) : processedLowList;
-      document.getElementById('lowSummary').innerHTML = `<span>⚠️ Low Stock: ${list.length} Items</span><span>${onlyNotOrdered ? 'Not Ordered Only' : 'All Low Stock'}</span>`;
+      document.getElementById('lowSummary').innerHTML = `<span>⚠️ Low Stock: ${list.length} Items</span><span onclick="toggleNotOrderedFilter()" style="cursor:pointer; text-decoration:underline;">${onlyNotOrdered ? 'Not Ordered Only ▾' : 'All Low Stock ▾'}</span>`;
       document.getElementById('lowResults').innerHTML = list.length ? list.map(item => `
         <div class="card" style="border-left-color:${item.netOrder > 0 ? '#dc2626' : '#f59e0b'};">
           <div class="card-header">
@@ -468,7 +468,15 @@
       downloadCSV('DDLB702_Low_Stock_Order.csv', rows);
     }
 
-        async function loadAnalytics() {
+    function downloadDeadStockCSV() {
+      const dead = (analyticsCache && analyticsCache.deadStock) || [];
+      if (!dead.length) return;
+      const rows = [['Part Number', 'Part Name', 'Bin', 'Stock', 'MRP', 'Dead Value']];
+      dead.forEach(i => rows.push([i.partNum, i.partName, i.bin, i.stock, i.mrp, i.deadValue]));
+      downloadCSV('DDLB702_Dead_Stock.csv', rows);
+    }
+
+    async function loadAnalytics() {
       if (!analyticsCache) {
         try {
           const res = await fetch(`${API_URL}?action=analytics`);
@@ -508,7 +516,6 @@
         </div>
       `).join('') : '<div class="empty">No Dead Stock parts!</div>';
 
-      // ಹಿನ್ನೆಲೆಯಲ್ಲಿ ಮುಖ್ಯ Stock ಶೀಟ್‌ನಿಂದ ನಿಖರವಾದ On Order Qty ತಂದು ಅಪ್‌ಡೇಟ್ ಮಾಡುವುದು
       Promise.all(processedLowList.map(async (item, idx) => {
         try {
           const r = await fetch(`${API_URL}?action=search&q=${encodeURIComponent(item.partNum)}`);
