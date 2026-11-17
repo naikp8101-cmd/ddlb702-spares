@@ -168,7 +168,8 @@
       if (navigator.clipboard) {
         navigator.clipboard.writeText(cleanGr).catch(() => {});
       }
-      if (tr.includes('SCOU') || tr.includes('TCI')) {
+            if (tr === 'SCOU-XPS' || tr.includes('TCI')) {
+
         showToast(`GR No ${cleanGr} copied — Paste in TCI Express...`);
         window.open('https://www.tciexpress.in/', '_blank');
       } else {
