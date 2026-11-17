@@ -261,22 +261,41 @@
     }
 
     async function searchStock() {
+        const stockSearchCache = {};
+
+    async function searchStock(forceRefresh = false) {
       const raw = document.getElementById('stockQuery').value.trim();
       if (!raw) return;
       const q = extractPartNumber(raw);
       document.getElementById('stockQuery').value = q;
       const box = document.getElementById('stockResults');
+      const cacheKey = q.toUpperCase();
+
+      if (!forceRefresh && stockSearchCache[cacheKey]) {
+        renderStockCards(stockSearchCache[cacheKey]);
+        return;
+      }
+
       box.innerHTML = '<div class="empty">Searching... ⏳</div>';
       try {
         const res = await fetch(`${API_URL}?action=search&q=${encodeURIComponent(q)}`);
         const data = await res.json();
-        if (!data.length) {
-          box.innerHTML = '<div class="empty">No parts found!</div>';
-          return;
-        }
-        box.innerHTML = data.map(item => {
-          const onOrder = (Number(item.bo) || 0) + (Number(item.allo) || 0) + (Number(item.up) || 0) + (Number(item.inv) || 0);
-          return `
+        stockSearchCache[cacheKey] = data || [];
+        renderStockCards(stockSearchCache[cacheKey]);
+      } catch (e) {
+        box.innerHTML = '<div class="empty">Error: Please check Apps Script URL or connection.</div>';
+      }
+    }
+
+    function renderStockCards(data) {
+      const box = document.getElementById('stockResults');
+      if (!data || !data.length) {
+        box.innerHTML = '<div class="empty">No parts found!</div>';
+        return;
+      }
+      box.innerHTML = data.map(item => {
+        const onOrder = (Number(item.bo) || 0) + (Number(item.allo) || 0) + (Number(item.up) || 0) + (Number(item.inv) || 0);
+        return `
           <div class="card">
             <div class="card-header">
               <div class="part-num">${item.partNum}</div>
@@ -297,10 +316,8 @@
             </div>
             <button class="btn btn-outline" onclick="openModal(${item.row}, '${item.partNum}', ${item.stock}, '${item.bin}')">✏️ Update Stock / Bin</button>
           </div>
-        `}).join('');
-      } catch (e) {
-        box.innerHTML = '<div class="empty">Error: Please check Apps Script URL or connection.</div>';
-      }
+        `;
+      }).join('');
     }
 
     async function searchPartOrderStatus() {
