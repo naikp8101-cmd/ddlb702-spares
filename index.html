@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+  <meta name="theme-color" content="#1e3a8a" />
+  <title>DDLB702 Spares</title>
+  <link rel="manifest" href="manifest.json" />
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+    body { background: #f1f5f9; color: #0f172a; padding-bottom: 40px; }
+    header { background: #1e3a8a; color: #fff; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
+    header h1 { font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+    .staff-badge { background: rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 20px; font-size: 13px; cursor: pointer; }
+    .tabs { display: flex; overflow-x: auto; background: #fff; border-bottom: 1px solid #cbd5e1; position: sticky; top: 48px; z-index: 99; }
+    .tab { flex: 1; min-width: max-content; padding: 12px 14px; text-align: center; font-size: 14px; font-weight: 600; color: #475569; border-bottom: 3px solid transparent; cursor: pointer; white-space: nowrap; }
+    .tab.active { color: #1e3a8a; border-bottom-color: #1e3a8a; background: #eff6ff; }
+    .container { padding: 14px; max-width: 720px; margin: 0 auto; }
+    .search-bar { display: flex; gap: 8px; margin-bottom: 14px; }
+    .search-bar input { flex: 1; padding: 12px; border: 1.5px solid #cbd5e1; border-radius: 10px; font-size: 16px; outline: none; }
+    .search-bar input:focus { border-color: #1e3a8a; }
+    .btn { padding: 10px 14px; border: none; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+    .btn-primary { background: #1d4ed8; color: #fff; }
+    .btn-scan { background: #059669; color: #fff; font-size: 18px; }
+    .btn-track { background: #047857; color: #fff; width: 100%; margin-top: 8px; font-size: 14px; padding: 10px; border-radius: 8px; }
+    .btn-outline { background: #f8fafc; border: 1px solid #cbd5e1; color: #1e293b; width: 100%; margin-top: 10px; }
+    .card { background: #fff; border-radius: 12px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border-left: 4px solid #1d4ed8; }
+    .card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+    .part-num { font-size: 17px; font-weight: 800; color: #1e3a8a; }
+    .bin-badge { background: #fef3c7; color: #92400e; padding: 4px 10px; border-radius: 20px; font-size: 13px; font-weight: 700; }
+    .stage-badge { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 800; color: #fff; }
+    .stage-bo { background: #dc2626; }
+    .stage-allo { background: #d97706; }
+    .stage-up { background: #2563eb; }
+    .stage-uinv { background: #7c3aed; }
+    .stage-inv { background: #059669; }
+    .part-desc { font-size: 13px; color: #334155; margin-bottom: 10px; }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; background: #f8fafc; padding: 8px; border-radius: 8px; text-align: center; margin-bottom: 8px; }
+    .metric-label { font-size: 11px; color: #64748b; }
+    .metric-val { font-size: 15px; font-weight: 700; color: #0f172a; }
+    .metric-val.green { color: #059669; }
+    .metric-val.red { color: #dc2626; }
+    .sub-metrics { display: flex; justify-content: space-between; font-size: 12px; color: #475569; padding-top: 6px; border-top: 1px dashed #e2e8f0; }
+    .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 12px; background: #f8fafc; padding: 8px; border-radius: 8px; margin-top: 8px; }
+    .tracking-box { background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 10px; margin-top: 10px; font-size: 13px; color: #065f46; }
+    #reader, #orderReader { width: 100%; margin-bottom: 12px; border-radius: 12px; overflow: hidden; display: none; }
+    .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 200; align-items: center; justify-content: center; padding: 16px; }
+    .modal-content { background: #fff; border-radius: 14px; padding: 18px; width: 100%; max-width: 400px; }
+    .modal-content h3 { margin-bottom: 12px; font-size: 17px; color: #1e3a8a; }
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+    .form-group input { width: 100%; padding: 10px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 15px; }
+    .empty { text-align: center; color: #64748b; padding: 36px 16px; font-size: 14px; line-height: 1.6; }
+    .summary-banner { background: #eff6ff; border: 1px solid #bfdbfe; padding: 10px 14px; border-radius: 10px; margin-bottom: 12px; font-size: 13px; font-weight: 600; color: #1e3a8a; display: flex; justify-content: space-between; }
+    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 25px; font-size: 13px; z-index: 300; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🚗 DDLB702 Spares</h1>
+    <div class="staff-badge" onclick="setStaffName()">👤 <span id="staffDisplay">Praveen</span></div>
+  </header>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('stock', this)">📦 Stock</div>
+    <div class="tab" onclick="switchTab('orders', this)">📋 Order Track</div>
+    <div class="tab" onclick="switchTab('dispatch', this)">🚚 Dispatch</div>
+    <div class="tab" onclick="switchTab('low', this)">⚠️ Low Stock</div>
+    <div class="tab" onclick="switchTab('dead', this)">💤 Dead Stock</div>
+  </div>
+
+  <div class="container">
+    <!-- STOCK TAB -->
+    <div id="tab-stock">
+      <div class="search-bar">
+        <input type="text" id="stockQuery" placeholder="Search Part No, Name or Bin..." onkeyup="if(event.key==='Enter') searchStock()" />
+        <button class="btn btn-scan" onclick="toggleScanner('stock')">📷</button>
+        <button class="btn btn-primary" onclick="searchStock()">Search</button>
+      </div>
+      <div id="reader"></div>
+      <div id="stockResults" class="empty">
+        Enter Part Number (e.g., 01421M0860A),<br/>Part Name (e.g., BOLT) or<br/>Bin Location (e.g., G0205G04) or scan QR code.
+      </div>
+    </div>
+
+    <!-- UNIFIED ORDER STATUS & TRACKING TAB -->
+    <div id="tab-orders" style="display:none;">
+      <div class="search-bar">
+        <input type="text" id="orderQuery" placeholder="Enter Part No or Order No..." onkeyup="if(event.key==='Enter') searchPartOrderStatus()" />
+        <button class="btn btn-scan" onclick="toggleScanner('order')">📷</button>
+        <button class="btn btn-primary" onclick="searchPartOrderStatus()">Search</button>
+      </div>
+      <div id="orderReader"></div>
+      <div id="orderResults" class="empty">
+        Search any Part Number (e.g., 65111M66T60) to check its current stage:<br/><b>B/O, ALLO, Under Picking, Under Invoice</b> or <b>Invoice</b> along with <b>Live Tracking</b>.
+      </div>
+    </div>
+
+    <!-- DISPATCH TAB -->
+    <div id="tab-dispatch" style="display:none;">
+      <div class="search-bar">
+        <input type="text" id="dispatchFilter" placeholder="Filter by FIN No, GR No, Truck No..." oninput="filterDispatchCards()" />
+      </div>
+      <div id="dispatchResults" class="empty">Loading... ⏳</div>
+    </div>
+
+    <!-- LOW STOCK TAB -->
+    <div id="tab-low" style="display:none;">
+      <div id="lowSummary" class="summary-banner" style="display:none;"></div>
+      <div id="lowResults" class="empty">Loading... ⏳</div>
+    </div>
+
+    <!-- DEAD STOCK TAB -->
+    <div id="tab-dead" style="display:none;">
+      <div id="deadSummary" class="summary-banner" style="display:none;"></div>
+      <div id="deadResults" class="empty">Loading... ⏳</div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <!-- UPDATE MODAL -->
+  <div id="updateModal" class="modal">
+    <div class="modal-content">
+      <h3 id="modalTitle">Update Stock / Bin</h3>
+      <input type="hidden" id="editRow" />
+      <div class="form-group">
+        <label>New Current Stock</label>
+        <input type="number" id="editStock" />
+      </div>
+      <div class="form-group">
+        <label>New Bin Location</label>
+        <input type="text" id="editBin" style="text-transform:uppercase;" />
+      </div>
+      <div class="form-group">
+        <label>Note (Optional)</label>
+        <input type="text" id="editNote" placeholder="e.g., Physical count verified" />
+      </div>
+      <div style="display:flex; gap:8px; margin-top:14px;">
+        <button class="btn btn-outline" style="margin-top:0;" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" style="width:100%;" onclick="saveUpdate()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = 'https://script.google.com/macros/s/AKfycbwHSSG7jePZ0HbBpL-5fnEsyCEpUpmWD771c6x3E3SNBXtGwakJYRJ75iYOmLrApgypZg/exec';
+    if (API_URL) localStorage.setItem('ddlb702_api', API_URL.trim());
+
+    let staffName = localStorage.getItem('ddlb702_staff') || 'Praveen';
+    document.getElementById('staffDisplay').innerText = staffName;
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.innerText = msg;
+      t.style.display = 'block';
+      setTimeout(() => { t.style.display = 'none'; }, 3000);
+    }
+
+    function trackShipment(grNo, transporter) {
+      const cleanGr = String(grNo || '').trim();
+      if (!cleanGr || cleanGr === 'NA' || cleanGr === '-') {
+        alert('GR / Docket Number not available!');
+        return;
+      }
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(cleanGr).catch(() => {});
+      }
+      showToast(`GR No ${cleanGr} copied — Opening AfterShip tracking...`);
+      const url = `https://www.aftership.com/track/${encodeURIComponent(cleanGr)}`;
+      window.open(url, '_blank');
+    }
+
+    function setStaffName() {
+      const name = prompt('Enter your name:', staffName);
+      if (name && name.trim()) {
+        staffName = name.trim();
+        localStorage.setItem('ddlb702_staff', staffName);
+        document.getElementById('staffDisplay').innerText = staffName;
+      }
+    }
+
+    function extractPartNumber(rawText) {
+      if (!rawText) return '';
+      const token = rawText.trim().split(/[\s;,|]+/)[0].toUpperCase();
+      return token || rawText.trim().toUpperCase();
+    }
+
+    let activeScanner = null;
+    function toggleScanner(mode) {
+      const divId = mode === 'order' ? 'orderReader' : 'reader';
+      const inputId = mode === 'order' ? 'orderQuery' : 'stockQuery';
+      const readerDiv = document.getElementById(divId);
+
+      if (readerDiv.style.display === 'block') {
+        if (activeScanner) activeScanner.stop().then(() => { readerDiv.style.display = 'none'; });
+        return;
+      }
+      readerDiv.style.display = 'block';
+      activeScanner = new Html5Qrcode(divId);
+      activeScanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 150 } },
+        (decodedText) => {
+          const cleanPart = extractPartNumber(decodedText);
+          document.getElementById(inputId).value = cleanPart;
+          activeScanner.stop().then(() => { readerDiv.style.display = 'none'; });
+          if (mode === 'order') searchPartOrderStatus();
+          else searchStock();
+        }
+      ).catch(err => {
+        alert('Camera failed to open: ' + err);
+        readerDiv.style.display = 'none';
+      });
+    }
+
+    function switchTab(tab, el) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      el.classList.add('active');
+      ['stock', 'orders', 'dispatch', 'low', 'dead'].forEach(id => {
+        document.getElementById('tab-' + id).style.display = (id === tab) ? 'block' : 'none';
+      });
+      if (tab === 'dispatch') loadDispatch();
+      if (tab === 'low' || tab === 'dead') loadAnalytics();
+    }
+
+    async function searchStock() {
+      const raw = document.getElementById('stockQuery').value.trim();
+      if (!raw) return;
+      const q = extractPartNumber(raw);
+      document.getElementById('stockQuery').value = q;
+      const box = document.getElementById('stockResults');
+      box.innerHTML = '<div class="empty">Searching... ⏳</div>';
+      try {
+        const res = await fetch(`${API_URL}?action=search&q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        if (!data.length) {
+          box.innerHTML = '<div class="empty">No parts found!</div>';
+          return;
+        }
+        box.innerHTML = data.map(item => `
+          <div class="card">
+            <div class="card-header">
+              <div class="part-num">${item.partNum}</div>
+              <div class="bin-badge">📍 ${item.bin}</div>
+            </div>
+            <div class="part-desc">${item.partName} (Root: ${item.rootNum || '-'})</div>
+            <div class="metrics">
+              <div><div class="metric-label">Current Stock</div><div class="metric-val ${item.stock > 0 ? 'green' : 'red'}">${item.stock}</div></div>
+              <div><div class="metric-label">MRP</div><div class="metric-val">₹${item.mrp}</div></div>
+              <div><div class="metric-label">Short/Excess</div><div class="metric-val">${item.shortExcess}</div></div>
+            </div>
+            <div class="sub-metrics">
+              <span>B/O: <b>${item.bo}</b></span>
+              <span>ALLO: <b>${item.allo}</b></span>
+              <span>U/P: <b>${item.up}</b></span>
+              <span>INV: <b>${item.inv}</b></span>
+            </div>
+            <button class="btn btn-outline" onclick="openModal(${item.row}, '${item.partNum}', ${item.stock}, '${item.bin}')">✏️ Update Stock / Bin</button>
+          </div>
+        `).join('');
+      } catch (e) {
+        box.innerHTML = '<div class="empty">Error: Please check Apps Script URL or connection.</div>';
+      }
+    }
+
+    async function searchPartOrderStatus() {
+      const raw = document.getElementById('orderQuery').value.trim();
+      if (!raw) return;
+      const q = extractPartNumber(raw);
+      document.getElementById('orderQuery').value = q;
+      const box = document.getElementById('orderResults');
+      box.innerHTML = '<div class="empty">Searching across all order tabs... ⏳</div>';
+      try {
+        const res = await fetch(`${API_URL}?action=track_part&q=${encodeURIComponent(q)}`);
+        const list = await res.json();
+        if (!list || !list.length) {
+          box.innerHTML = `<div class="empty">Part <b>${q}</b> was not found in B/O, ALLO, Under Picking, Under Invoice, or Invoice!</div>`;
+          return;
+        }
+        box.innerHTML = list.map(item => {
+          const badgeClass =
+            item.stage === 'B/O' ? 'stage-bo' :
+            item.stage === 'ALLO' ? 'stage-allo' :
+            item.stage === 'UNDER PICKING' ? 'stage-up' :
+            item.stage === 'UNDER INVOICE' ? 'stage-uinv' : 'stage-inv';
+
+          const borderCol =
+            item.stage === 'B/O' ? '#dc2626' :
+            item.stage === 'ALLO' ? '#d97706' :
+            item.stage === 'UNDER PICKING' ? '#2563eb' :
+            item.stage === 'UNDER INVOICE' ? '#7c3aed' : '#059669';
+
+          const detailsHtml = Object.entries(item.details || {})
+            .filter(([k, v]) => v !== '' && v !== null && v !== undefined)
+            .map(([k, v]) => `<div><span style="color:#64748b">${k}:</span> <b>${v}</b></div>`)
+            .join('');
+
+          let trackingHtml = '';
+          if (item.tracking) {
+            const t = item.tracking;
+            const hasGr = t.grNo && String(t.grNo).trim() !== '' && String(t.grNo).trim().toUpperCase() !== 'NA';
+            trackingHtml = `
+              <div class="tracking-box">
+                <div style="font-weight:800; margin-bottom:4px;">🚚 Live Dispatch & Tracking</div>
+                <div>FIN No: <b>${t.finNo || '-'}</b> | GR No: <b>${t.grNo || '-'}</b></div>
+                <div>Transporter: <b>${t.transporter || '-'}</b> | Truck: <b>${t.truckNo || '-'}</b></div>
+                ${t.currLoc && t.currLoc !== 'NA' ? `<div>Location: <b>${t.currLoc}</b></div>` : ''}
+                ${t.eta && t.eta !== 'NA' ? `<div>ETA / Status: <b>${t.eta}</b></div>` : ''}
+                ${hasGr ? `<button class="btn btn-track" onclick="trackShipment('${t.grNo}', '${t.transporter}')">🔍 Live Track (${t.transporter || 'GR'}: ${t.grNo})</button>` : ''}
+              </div>
+            `;
+          }
+
+          return `
+            <div class="card" style="border-left-color:${borderCol};">
+              <div class="card-header">
+                <div class="part-num">${item.partNum || q}</div>
+                <span class="stage-badge ${badgeClass}">${item.stage}</span>
+              </div>
+              <div class="part-desc">${item.partName || ''}</div>
+              <div class="details-grid">${detailsHtml}</div>
+              ${trackingHtml}
+            </div>
+          `;
+        }).join('');
+      } catch (e) {
+        box.innerHTML = '<div class="empty">Error: Please check Apps Script deployment.</div>';
+      }
+    }
+
+    let currentDispatchList = [];
+    async function loadDispatch() {
+      const box = document.getElementById('dispatchResults');
+      box.innerHTML = '<div class="empty">Loading... ⏳</div>';
+      try {
+        const res = await fetch(`${API_URL}?action=dispatch`);
+        currentDispatchList = await res.json();
+        renderDispatchCards(currentDispatchList);
+      } catch (e) {
+        box.innerHTML = '<div class="empty">Failed to load dispatch data.</div>';
+      }
+    }
+
+    function filterDispatchCards() {
+      const q = document.getElementById('dispatchFilter').value.trim().toUpperCase();
+      if (!q) return renderDispatchCards(currentDispatchList);
+      renderDispatchCards(currentDispatchList.filter(d => Object.values(d).some(v => String(v).toUpperCase().includes(q))));
+    }
+
+    function renderDispatchCards(list) {
+      const box = document.getElementById('dispatchResults');
+      if (!list.length) { box.innerHTML = '<div class="empty">No dispatch records found.</div>'; return; }
+      box.innerHTML = list.map(d => {
+        const hasGr = d.grNo && String(d.grNo).trim() !== '' && String(d.grNo).trim().toUpperCase() !== 'NA';
+        return `
+          <div class="card">
+            <div class="card-header">
+              <div class="part-num">FIN: ${d.finNo || '-'}</div>
+              <div class="bin-badge">₹${d.value || 0}</div>
+            </div>
+            <div class="part-desc">🚚 <b>${d.transporter || '-'}</b> | Truck: <b>${d.truckNo || '-'}</b></div>
+            <div class="sub-metrics">
+              <span>GR: <b>${d.grNo || '-'}</b></span>
+              <span>Loc: <b>${d.currLoc && d.currLoc !== 'NA' ? d.currLoc : (d.location || '-')}</b></span>
+            </div>
+            ${d.eta && d.eta !== 'NA' ? `<div style="margin-top:6px; font-size:12px; color:#047857; font-weight:700; background:#ecfdf5; padding:6px 8px; border-radius:6px;">🕒 ETA: ${d.eta}</div>` : ''}
+            ${hasGr ? `<button class="btn btn-track" onclick="trackShipment('${d.grNo}', '${d.transporter}')">🔍 Live Track (${d.grNo})</button>` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    let analyticsCache = null;
+    async function loadAnalytics() {
+      if (!analyticsCache) {
+        try {
+          const res = await fetch(`${API_URL}?action=analytics`);
+          analyticsCache = await res.json();
+        } catch (e) {
+          document.getElementById('lowResults').innerHTML = '<div class="empty">Failed to load Consumption Report.</div>';
+          document.getElementById('deadResults').innerHTML = '<div class="empty">Failed to load Consumption Report.</div>';
+          return;
+        }
+      }
+      const low = analyticsCache.lowStock || [];
+      document.getElementById('lowSummary').style.display = 'flex';
+      document.getElementById('lowSummary').innerHTML = `<span>⚠️ Total Low Stock: ${analyticsCache.totalLowCount || low.length}</span><span>Top 100</span>`;
+      document.getElementById('lowResults').innerHTML = low.length ? low.map(item => `
+        <div class="card" style="border-left-color:#f59e0b;">
+          <div class="card-header">
+            <div class="part-num">${item.partNum}</div>
+            <div class="bin-badge">📍 ${item.bin}</div>
+          </div>
+          <div class="part-desc">${item.partName}</div>
+          <div class="metrics">
+            <div><div class="metric-label">Stock</div><div class="metric-val red">${item.stock}</div></div>
+            <div><div class="metric-label">6M Sale</div><div class="metric-val">${item.consumed}</div></div>
+            <div><div class="metric-label">Order Qty</div><div class="metric-val green">+${item.suggestedOrder}</div></div>
+          </div>
+        </div>
+      `).join('') : '<div class="empty">No Low Stock parts!</div>';
+
+      const dead = analyticsCache.deadStock || [];
+      document.getElementById('deadSummary').style.display = 'flex';
+      document.getElementById('deadSummary').innerHTML = `<span>💤 Dead Items: ${analyticsCache.totalDeadCount || dead.length}</span><span>₹${(analyticsCache.totalDeadValue || 0).toLocaleString()}</span>`;
+      document.getElementById('deadResults').innerHTML = dead.length ? dead.map(item => `
+        <div class="card" style="border-left-color:#64748b;">
+          <div class="card-header">
+            <div class="part-num">${item.partNum}</div>
+            <div class="bin-badge">📍 ${item.bin}</div>
+          </div>
+          <div class="part-desc">${item.partName}</div>
+          <div class="metrics">
+            <div><div class="metric-label">Stock</div><div class="metric-val">${item.stock}</div></div>
+            <div><div class="metric-label">MRP</div><div class="metric-val">₹${item.mrp}</div></div>
+            <div><div class="metric-label">Dead Value</div><div class="metric-val red">₹${item.deadValue}</div></div>
+          </div>
+        </div>
+      `).join('') : '<div class="empty">No Dead Stock parts!</div>';
+    }
+
+    function openModal(row, partNum, stock, bin) {
+      document.getElementById('editRow').value = row;
+      document.getElementById('modalTitle').innerText = `Update: ${partNum}`;
+      document.getElementById('editStock').value = stock;
+      document.getElementById('editBin').value = bin;
+      document.getElementById('editNote').value = '';
+      document.getElementById('updateModal').style.display = 'flex';
+    }
+    function closeModal() { document.getElementById('updateModal').style.display = 'none'; }
+
+    async function saveUpdate() {
+      const payload = {
+        action: 'update',
+        row: document.getElementById('editRow').value,
+        newStock: document.getElementById('editStock').value,
+        newBin: document.getElementById('editBin').value,
+        note: document.getElementById('editNote').value,
+        staff: staffName
+      };
+      closeModal();
+      try {
+        const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
+        const out = await res.json();
+        alert(out.message || 'Updated Successfully!');
+        searchStock();
+      } catch (e) {
+        alert('Update failed: ' + e);
+      }
+    }
+  </script>
+</body>
+</html>
