@@ -516,18 +516,24 @@
         </div>
       `).join('') : '<div class="empty">No Dead Stock parts!</div>';
 
-      Promise.all(processedLowList.map(async (item, idx) => {
-        try {
-          const r = await fetch(`${API_URL}?action=search&q=${encodeURIComponent(item.partNum)}`);
-          const list = await r.json();
-          const match = (list || []).find(x => String(x.partNum).trim().toUpperCase() === String(item.partNum).trim().toUpperCase()) || (list && list[0]);
-          if (match) {
-            const ord = (Number(match.bo) || 0) + (Number(match.allo) || 0) + (Number(match.up) || 0) + (Number(match.inv) || 0);
-            processedLowList[idx].onOrder = ord;
-            processedLowList[idx].netOrder = Math.max(0, processedLowList[idx].suggestedOrder - ord);
-          }
-        } catch (err) {}
-      })).then(() => renderLowStockCards());
+            (async () => {
+        for (let i = 0; i < processedLowList.length; i += 5) {
+          const batch = processedLowList.slice(i, i + 5);
+          await Promise.all(batch.map(async (item, bIdx) => {
+            try {
+              const r = await fetch(`${API_URL}?action=search&q=${encodeURIComponent(item.partNum)}`);
+              const list = await r.json();
+              const match = (list || []).find(x => String(x.partNum).trim().toUpperCase() === String(item.partNum).trim().toUpperCase()) || (list && list[0]);
+              if (match) {
+                const ord = (Number(match.bo) || 0) + (Number(match.allo) || 0) + (Number(match.up) || 0) + (Number(match.inv) || 0);
+                processedLowList[i + bIdx].onOrder = ord;
+                processedLowList[i + bIdx].netOrder = Math.max(0, processedLowList[i + bIdx].suggestedOrder - ord);
+              }
+            } catch (err) {}
+          }));
+          renderLowStockCards();
+        }
+      })();
     }
 
     function openModal(row, partNum, stock, bin) {
