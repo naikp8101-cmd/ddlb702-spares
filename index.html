@@ -468,15 +468,7 @@
       downloadCSV('DDLB702_Low_Stock_Order.csv', rows);
     }
 
-    function downloadDeadStockCSV() {
-      const dead = (analyticsCache && analyticsCache.deadStock) || [];
-      if (!dead.length) return;
-      const rows = [['Part Number', 'Part Name', 'Bin', 'Stock', 'MRP', 'Dead Value']];
-      dead.forEach(i => rows.push([i.partNum, i.partName, i.bin, i.stock, i.mrp, i.deadValue]));
-      downloadCSV('DDLB702_Dead_Stock.csv', rows);
-    }
-
-    async function loadAnalytics() {
+        async function loadAnalytics() {
       if (!analyticsCache) {
         try {
           const res = await fetch(`${API_URL}?action=analytics`);
@@ -489,11 +481,8 @@
       }
       const low = analyticsCache.lowStock || [];
       processedLowList = low.map(item => {
-        const calcOrder = (Number(item.bo) || 0) + (Number(item.allo) || 0) + (Number(item.up) || 0) + (Number(item.inv) || 0);
-        const onOrder = (item.onOrder !== undefined && item.onOrder !== null) ? Number(item.onOrder) : calcOrder;
         const suggested = Number(item.suggestedOrder) || 0;
-        const netOrder = Math.max(0, suggested - onOrder);
-        return { ...item, onOrder, suggestedOrder: suggested, netOrder };
+        return { ...item, onOrder: 0, suggestedOrder: suggested, netOrder: suggested };
       });
 
       document.getElementById('lowSummary').style.display = 'flex';
@@ -518,37 +507,19 @@
           </div>
         </div>
       `).join('') : '<div class="empty">No Dead Stock parts!</div>';
-    }
 
-    function openModal(row, partNum, stock, bin) {
-      document.getElementById('editRow').value = row;
-      document.getElementById('modalTitle').innerText = `Update: ${partNum}`;
-      document.getElementById('editStock').value = stock;
-      document.getElementById('editBin').value = bin;
-      document.getElementById('editNote').value = '';
-      document.getElementById('updateModal').style.display = 'flex';
+      // ಹಿನ್ನೆಲೆಯಲ್ಲಿ ಮುಖ್ಯ Stock ಶೀಟ್‌ನಿಂದ ನಿಖರವಾದ On Order Qty ತಂದು ಅಪ್‌ಡೇಟ್ ಮಾಡುವುದು
+      Promise.all(processedLowList.map(async (item, idx) => {
+        try {
+          const r = await fetch(`${API_URL}?action=search&q=${encodeURIComponent(item.partNum)}`);
+          const list = await r.json();
+          const match = (list || []).find(x => String(x.partNum).trim().toUpperCase() === String(item.partNum).trim().toUpperCase()) || (list && list[0]);
+          if (match) {
+            const ord = (Number(match.bo) || 0) + (Number(match.allo) || 0) + (Number(match.up) || 0) + (Number(match.inv) || 0);
+            processedLowList[idx].onOrder = ord;
+            processedLowList[idx].netOrder = Math.max(0, processedLowList[idx].suggestedOrder - ord);
+          }
+        } catch (err) {}
+      })).then(() => renderLowStockCards());
     }
-    function closeModal() { document.getElementById('updateModal').style.display = 'none'; }
-
-    async function saveUpdate() {
-      const payload = {
-        action: 'update',
-        row: document.getElementById('editRow').value,
-        newStock: document.getElementById('editStock').value,
-        newBin: document.getElementById('editBin').value,
-        note: document.getElementById('editNote').value,
-        staff: staffName
-      };
-      closeModal();
-      try {
-        const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
-        const out = await res.json();
-        showToast(out.message || 'Updated Successfully!');
-        searchStock();
-      } catch (e) {
-        alert('Update failed: ' + e);
-      }
-    }
-  </script>
-</body>
-</html>
+    
