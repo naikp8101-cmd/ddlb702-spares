@@ -81,7 +81,6 @@
   </div>
 
   <div class="container">
-    <!-- STOCK TAB -->
     <div id="tab-stock">
       <div class="search-bar">
         <input type="text" id="stockQuery" placeholder="Search Part No, Name or Bin..." onkeyup="if(event.key==='Enter') searchStock()" />
@@ -92,7 +91,6 @@
       <div id="stockResults"><div class="empty">Enter Part No, Name, or Bin (e.g. GA01A01) or tap 📷 to scan.</div></div>
     </div>
 
-    <!-- ORDER TRACK TAB -->
     <div id="tab-orders" style="display:none;">
       <div class="search-bar">
         <input type="text" id="orderQuery" placeholder="Track Part in B/O, ALLO, Pick, Inv..." onkeyup="if(event.key==='Enter') searchPartOrderStatus()" />
@@ -103,7 +101,6 @@
       <div id="orderResults"><div class="empty">Search any Part Number to view live stage & courier tracking.</div></div>
     </div>
 
-    <!-- DISPATCH TAB -->
     <div id="tab-dispatch" style="display:none;">
       <div class="search-bar">
         <input type="text" id="dispatchFilter" placeholder="Filter by FIN, GR, Truck or Transporter..." onkeyup="filterDispatchCards()" />
@@ -112,7 +109,6 @@
       <div id="dispatchResults"><div class="empty">Loading dispatch details...</div></div>
     </div>
 
-    <!-- LOW STOCK TAB -->
     <div id="tab-low" style="display:none;">
       <div id="lowSummary" class="summary-banner" style="display:none;"></div>
       <div class="action-bar" id="lowActions" style="display:none;">
@@ -123,7 +119,6 @@
       <div id="lowResults"><div class="empty">Loading Low Stock & On-Order report...</div></div>
     </div>
 
-    <!-- DEAD STOCK TAB -->
     <div id="tab-dead" style="display:none;">
       <div id="deadSummary" class="summary-banner" style="display:none;"></div>
       <div class="action-bar" id="deadActions" style="display:none;">
@@ -133,7 +128,6 @@
     </div>
   </div>
 
-  <!-- UPDATE MODAL -->
   <div class="modal" id="updateModal">
     <div class="modal-content">
       <h3 id="modalTitle">Update Stock</h3>
@@ -341,7 +335,7 @@
             .map(([k, v]) => `<div><span style="color:#64748b">${k}:</span> <b>${v}</b></div>`)
             .join('');
 
-          const orderDateVal = item.details?.['Order Date'] || item.details?.['Order_Date'] || item.details?.['Date'] || '';
+          const orderDateVal = (item.details && (item.details['Order Date'] || item.details['Order_Date'] || item.details['Date'])) || '';
           const agingHtml = item.stage === 'B/O' ? getAgingBadge(orderDateVal) : '';
 
           let trackingHtml = '';
@@ -363,4 +357,7 @@
           return `
             <div class="card" style="border-left-color:${borderCol};">
               <div class="card-header">
-                <div class="part-num">${item.partNum || q}
+                <div class="part-num">${item.partNum || q}</div>
+                <span class="stage-badge ${badgeClass}">${item.stage}</span>
+              </div>
+              <div class="part-desc">$
