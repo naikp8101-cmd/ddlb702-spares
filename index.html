@@ -158,8 +158,9 @@
       setTimeout(() => { t.style.display = 'none'; }, 3000);
     }
 
-    function trackShipment(grNo, transporter) {
+        function trackShipment(grNo, transporter) {
       const cleanGr = String(grNo || '').trim();
+      const tr = String(transporter || '').trim().toUpperCase();
       if (!cleanGr || cleanGr === 'NA' || cleanGr === '-') {
         alert('GR / Docket Number not available!');
         return;
@@ -167,10 +168,15 @@
       if (navigator.clipboard) {
         navigator.clipboard.writeText(cleanGr).catch(() => {});
       }
-      showToast(`GR No ${cleanGr} copied — Opening AfterShip tracking...`);
-      const url = `https://www.aftership.com/track/${encodeURIComponent(cleanGr)}`;
-      window.open(url, '_blank');
+      if (tr.includes('SCOU') || tr.includes('XPS') || tr.includes('TCI')) {
+        showToast(`GR No ${cleanGr} copied — Paste in TCI Express...`);
+        window.open('https://www.tciexpress.in/', '_blank');
+      } else {
+        showToast(`GR No ${cleanGr} copied — Opening AfterShip tracking...`);
+        window.open(`https://www.aftership.com/track/${encodeURIComponent(cleanGr)}`, '_blank');
+      }
     }
+
 
     function setStaffName() {
       const name = prompt('Enter your name:', staffName);
