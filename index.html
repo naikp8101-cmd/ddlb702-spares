@@ -34,7 +34,7 @@
     header {
       background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
       color: #fff;
-      padding: 14px 16px;
+      padding: 13px 14px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -42,28 +42,63 @@
       top: 0;
       z-index: 30;
       box-shadow: 0 2px 10px rgba(15, 23, 42, 0.18);
+      gap: 8px;
     }
-    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand { display: flex; align-items: center; gap: 9px; }
     .brand-icon {
-      width: 36px; height: 36px; border-radius: 10px;
+      width: 34px; height: 34px; border-radius: 10px;
       background: rgba(255,255,255,0.14);
       display: flex; align-items: center; justify-content: center;
-      font-size: 18px; border: 1px solid rgba(255,255,255,0.18);
+      font-size: 17px; border: 1px solid rgba(255,255,255,0.18);
     }
-    .brand-title { font-size: 16px; font-weight: 800; letter-spacing: -0.3px; }
-    .brand-sub { font-size: 11px; color: #93c5fd; font-weight: 600; }
-    .staff-badge {
+    .brand-title { font-size: 15px; font-weight: 800; letter-spacing: -0.3px; }
+    .brand-sub { font-size: 10.5px; color: #93c5fd; font-weight: 600; }
+    .header-actions { display: flex; align-items: center; gap: 6px; }
+    .pill-badge {
       background: rgba(255,255,255,0.14);
-      border: 1px solid rgba(255,255,255,0.2);
-      padding: 6px 12px;
+      border: 1px solid rgba(255,255,255,0.22);
+      padding: 5px 10px;
       border-radius: 999px;
-      font-size: 12px;
-      font-weight: 600;
+      font-size: 11.5px;
+      font-weight: 700;
       cursor: pointer;
-      display: flex; align-items: center; gap: 5px;
+      display: flex; align-items: center; gap: 4px;
+      color: #fff;
     }
+    .pill-badge.admin-on { background: #059669; border-color: #34d399; }
 
     .container { padding: 14px; max-width: 620px; margin: 0 auto; }
+
+    .kpi-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 12px; }
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 10px 12px;
+      box-shadow: var(--shadow);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .kpi-title { font-size: 11px; font-weight: 700; color: var(--text-muted); }
+    .kpi-num { font-size: 17px; font-weight: 800; color: var(--text); margin-top: 2px; }
+    .kpi-icon { font-size: 20px; }
+
+    .rack-strip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 8px; scrollbar-width: none; }
+    .rack-strip::-webkit-scrollbar { display: none; }
+    .rack-chip {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: #334155;
+      padding: 6px 11px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .rack-chip.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 
     .search-card {
       background: var(--surface);
@@ -73,7 +108,7 @@
       border: 1px solid var(--border);
       display: flex;
       gap: 6px;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
     }
     .search-card input {
       flex: 1;
@@ -88,23 +123,25 @@
     .search-card input::placeholder { color: #94a3b8; }
 
     .btn {
-      padding: 10px 14px;
+      padding: 10px 13px;
       border: none;
       border-radius: 10px;
-      font-size: 13px;
+      font-size: 12.5px;
       font-weight: 700;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
+      gap: 5px;
       transition: transform 0.1s ease, opacity 0.15s ease;
     }
     .btn:active { transform: scale(0.97); }
     .btn-primary { background: var(--primary); color: #fff; box-shadow: 0 2px 6px rgba(29, 78, 216, 0.28); }
     .btn-scan { background: #0d9488; color: #fff; padding: 10px 12px; font-size: 16px; }
     .btn-track { background: linear-gradient(135deg, #0284c7, #1d4ed8); color: #fff; width: 100%; margin-top: 10px; padding: 11px; border-radius: 10px; }
-    .btn-outline { background: var(--primary-soft); border: 1px solid #dbeafe; color: var(--primary); width: 100%; margin-top: 10px; }
+    .btn-outline { background: var(--primary-soft); border: 1px solid #dbeafe; color: var(--primary); flex: 1; }
+    .btn-quote { background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; flex: 1; }
+    .card-btn-row { display: flex; gap: 8px; margin-top: 10px; }
     .btn-sm { padding: 8px 12px; font-size: 12px; border-radius: 9px; }
     .btn-whatsapp { background: #16a34a; color: #fff; }
     .btn-csv { background: #1e293b; color: #fff; }
@@ -212,7 +249,7 @@
     .form-group input { width: 100%; padding: 11px; border: 1.5px solid var(--border); border-radius: 10px; font-size: 14px; outline: none; }
     .form-group input:focus { border-color: var(--primary); }
 
-    .empty { text-align: center; color: var(--text-muted); padding: 36px 16px; font-size: 13.5px; line-height: 1.6; background: var(--surface); border-radius: 16px; border: 1px dashed var(--border); }
+    .empty { text-align: center; color: var(--text-muted); padding: 32px 16px; font-size: 13.5px; line-height: 1.6; background: var(--surface); border-radius: 16px; border: 1px dashed var(--border); }
     #toast { position: fixed; bottom: 82px; left: 50%; transform: translateX(-50%); background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 12.5px; font-weight: 600; display: none; z-index: 200; box-shadow: 0 8px 20px rgba(0,0,0,0.25); white-space: nowrap; }
   </style>
 </head>
@@ -222,21 +259,54 @@
       <div class="brand-icon">⚙️</div>
       <div>
         <div class="brand-title">DDLB702 Spares</div>
-        <div class="brand-sub">Warehouse & Inventory Pro</div>
+        <div class="brand-sub" id="roleSubLabel">Staff View · DDLB702</div>
       </div>
     </div>
-    <div class="staff-badge" onclick="setStaffName()">👤 <span id="staffDisplay">Praveen</span> ✏️</div>
+    <div class="header-actions">
+      <div class="pill-badge" id="installBtn" style="display:none;" onclick="installPWA()">📲 Install</div>
+      <div class="pill-badge" id="roleBtn" onclick="toggleAdminMode()">🔒 Staff</div>
+      <div class="pill-badge" onclick="setStaffName()">👤 <span id="staffDisplay">Praveen</span></div>
+    </div>
   </header>
 
   <div class="container">
     <div id="tab-stock">
+      <div class="kpi-grid">
+        <div class="kpi-card" onclick="goTab('low')">
+          <div><div class="kpi-title">0-Stock Reorder</div><div class="kpi-num" style="color:var(--red);" id="kpiZero">--</div></div>
+          <div class="kpi-icon">⚠️</div>
+        </div>
+        <div class="kpi-card" onclick="goTab('dispatch')">
+          <div><div class="kpi-title">Live Dispatches</div><div class="kpi-num" style="color:var(--primary);" id="kpiDisp">--</div></div>
+          <div class="kpi-icon">🚚</div>
+        </div>
+        <div class="kpi-card" onclick="goTab('dead')">
+          <div><div class="kpi-title">Dead Parts Value</div><div class="kpi-num" style="color:var(--amber);" id="kpiDeadParts">--</div></div>
+          <div class="kpi-icon">🔧</div>
+        </div>
+        <div class="kpi-card" onclick="goTab('dead')">
+          <div><div class="kpi-title">Dead Acc. Value</div><div class="kpi-num" style="color:var(--purple);" id="kpiDeadAcc">--</div></div>
+          <div class="kpi-icon">✨</div>
+        </div>
+      </div>
+
+      <div class="rack-strip">
+        <div class="rack-chip active" onclick="quickRack('', this)">All Bins</div>
+        <div class="rack-chip" onclick="quickRack('GA01', this)">📍 GA01</div>
+        <div class="rack-chip" onclick="quickRack('GA02', this)">📍 GA02</div>
+        <div class="rack-chip" onclick="quickRack('GA03', this)">📍 GA03</div>
+        <div class="rack-chip" onclick="quickRack('GA04', this)">📍 GA04</div>
+        <div class="rack-chip" onclick="quickRack('GA05', this)">📍 GA05</div>
+        <div class="rack-chip" onclick="quickRack('GA06', this)">📍 GA06</div>
+      </div>
+
       <div class="search-card">
         <input type="text" id="stockQuery" placeholder="Part No, Name or Bin (GA01A01)..." onkeyup="if(event.key==='Enter') searchStock()" />
         <button class="btn btn-scan" onclick="toggleScanner('stock')">📷</button>
         <button class="btn btn-primary" onclick="searchStock()">Search</button>
       </div>
       <div id="reader"></div>
-      <div id="stockResults"><div class="empty">🔍 Enter Part Number, Name, or Bin Location<br/>or tap <b>📷</b> to scan QR / Barcode.</div></div>
+      <div id="stockResults"><div class="empty">🔍 Search Part Number, Name, or tap a <b>Rack Chip (GA01–GA06)</b><br/>or tap <b>📷</b> to scan QR / Barcode.</div></div>
     </div>
 
     <div id="tab-dealer" style="display:none;">
@@ -270,7 +340,7 @@
       <div class="action-bar" id="lowActions" style="display:none;">
         <button class="btn btn-sm btn-filter" id="btnNotOrdered" onclick="toggleNotOrderedFilter()">🔍 Not Ordered Only</button>
         <button class="btn btn-sm btn-whatsapp" onclick="copyLowStockOrder()">📋 Copy Order</button>
-        <button class="btn btn-sm btn-csv" onclick="downloadLowStockCSV()">📥 CSV</button>
+        <button class="btn btn-sm btn-csv admin-only" onclick="downloadLowStockCSV()">📥 CSV</button>
       </div>
       <div id="lowResults"><div class="empty">Calculating 6-month reorder priority... ⏳</div></div>
     </div>
@@ -280,26 +350,26 @@
       <div class="action-bar" id="deadActions" style="display:none;">
         <button class="btn btn-sm btn-filter active" id="btnDeadParts" onclick="switchDeadType('parts')">🔧 Spare Parts</button>
         <button class="btn btn-sm btn-filter" id="btnDeadAcc" onclick="switchDeadType('acc')">✨ Accessories</button>
-        <button class="btn btn-sm btn-csv" onclick="downloadDeadStockCSV()">📥 CSV</button>
+        <button class="btn btn-sm btn-csv admin-only" onclick="downloadDeadStockCSV()">📥 CSV</button>
       </div>
       <div id="deadResults"><div class="empty">Loading Dead Stock report... ⏳</div></div>
     </div>
   </div>
 
   <nav class="bottom-nav">
-    <div class="nav-item active" onclick="switchTab('stock', this)"><span class="nav-icon">📦</span><span>Stock</span></div>
-    <div class="nav-item" onclick="switchTab('dealer', this)"><span class="nav-icon">🏢</span><span>Co-Dealer</span></div>
-    <div class="nav-item" onclick="switchTab('orders', this)"><span class="nav-icon">📋</span><span>Orders</span></div>
-    <div class="nav-item" onclick="switchTab('dispatch', this)"><span class="nav-icon">🚚</span><span>Dispatch</span></div>
-    <div class="nav-item" onclick="switchTab('low', this)"><span class="nav-icon">⚠️</span><span>Reorder</span></div>
-    <div class="nav-item" onclick="switchTab('dead', this)"><span class="nav-icon">💤</span><span>Dead</span></div>
+    <div class="nav-item active" id="nav-stock" onclick="switchTab('stock', this)"><span class="nav-icon">📦</span><span>Stock</span></div>
+    <div class="nav-item" id="nav-dealer" onclick="switchTab('dealer', this)"><span class="nav-icon">🏢</span><span>Co-Dealer</span></div>
+    <div class="nav-item" id="nav-orders" onclick="switchTab('orders', this)"><span class="nav-icon">📋</span><span>Orders</span></div>
+    <div class="nav-item" id="nav-dispatch" onclick="switchTab('dispatch', this)"><span class="nav-icon">🚚</span><span>Dispatch</span></div>
+    <div class="nav-item" id="nav-low" onclick="switchTab('low', this)"><span class="nav-icon">⚠️</span><span>Reorder</span></div>
+    <div class="nav-item" id="nav-dead" onclick="switchTab('dead', this)"><span class="nav-icon">💤</span><span>Dead</span></div>
   </nav>
     <div class="modal" id="updateModal">
     <div class="modal-content">
       <h3 id="modalTitle">Update Stock</h3>
       <input type="hidden" id="editRow" />
       <div class="form-group">
-        <label>New Stock Quantity</label>
+        <label>Stock Quantity</label>
         <input type="number" id="editStock" />
       </div>
       <div class="form-group">
@@ -308,11 +378,11 @@
       </div>
       <div class="form-group">
         <label>Remark / Note (Optional)</label>
-        <input type="text" id="editNote" placeholder="e.g. Physical count verified" />
+        <input type="text" id="editNote" placeholder="e.g. New bin assigned" />
       </div>
       <div style="display:flex; gap:8px;">
-        <button class="btn btn-outline" style="margin-top:0;" onclick="closeModal()">Cancel</button>
-        <button class="btn btn-primary" style="width:100%;" onclick="saveUpdate()">Save Changes</button>
+        <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" style="flex:1;" onclick="saveUpdate()">Save Changes</button>
       </div>
     </div>
   </div>
@@ -321,17 +391,82 @@
 
   <script>
     const API_URL = 'https://script.google.com/macros/s/AKfycbwHSSG7jePZ0HbBpL-5fnEsyCEpUpmWD771c6x3E3SNBXtGwakJYRJ75iYOmLrApgypZg/exec';
+    const ADMIN_PIN = '7020';
 
-    if (API_URL) localStorage.setItem('ddlb702_url', API_URL.trim());
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    }
 
+    let deferredPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      document.getElementById('installBtn').style.display = 'flex';
+    });
+
+    function installPWA() {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(() => {
+        deferredPrompt = null;
+        document.getElementById('installBtn').style.display = 'none';
+      });
+    }
+
+    let isAdmin = localStorage.getItem('ddlb702_admin') === '1';
     let staffName = localStorage.getItem('ddlb702_staff') || 'Praveen';
     document.getElementById('staffDisplay').innerText = staffName;
+
+    function applyRoleUI() {
+      const btn = document.getElementById('roleBtn');
+      const sub = document.getElementById('roleSubLabel');
+      if (isAdmin) {
+        btn.innerHTML = '🔓 Admin';
+        btn.classList.add('admin-on');
+        sub.innerText = 'Admin Control · DDLB702';
+      } else {
+        btn.innerHTML = '🔒 Staff';
+        btn.classList.remove('admin-on');
+        sub.innerText = 'Staff Bin Mode · DDLB702';
+      }
+      document.querySelectorAll('.admin-only').forEach(el => {
+        el.style.display = isAdmin ? '' : 'none';
+      });
+    }
+    applyRoleUI();
+
+    function toggleAdminMode() {
+      if (isAdmin) {
+        if (confirm('Switch back to Staff Mode?')) {
+          isAdmin = false;
+          localStorage.setItem('ddlb702_admin', '0');
+          applyRoleUI();
+          showToast('Switched to Staff Mode 🔒');
+        }
+        return;
+      }
+      const pin = prompt('Enter Admin PIN to unlock Stock Qty Edit:');
+      if (pin === ADMIN_PIN) {
+        isAdmin = true;
+        localStorage.setItem('ddlb702_admin', '1');
+        applyRoleUI();
+        showToast('Admin Mode Unlocked 🔓');
+      } else if (pin !== null) {
+        alert('Incorrect Admin PIN ❌');
+      }
+    }
 
     function showToast(msg) {
       const t = document.getElementById('toast');
       t.innerText = msg;
       t.style.display = 'block';
       setTimeout(() => { t.style.display = 'none'; }, 3200);
+    }
+
+    function shareWhatsAppQuote(partNum, partName, mrp, stock, source) {
+      const status = Number(stock) > 0 ? `✅ Available (Qty: ${stock})` : `⏳ On Order (4-5 Days)`;
+      const msg = `*DDLB702 Maruti Genuine Spares*\nPart No: *${partNum}*\nDescription: ${partName}\nMRP: *₹${mrp}*\nStatus (${source}): ${status}`;
+      window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
     }
 
     function trackShipment(grNo, transporter) {
@@ -411,6 +546,11 @@
       });
     }
 
+    function goTab(tab) {
+      const navEl = document.getElementById('nav-' + tab);
+      if (navEl) switchTab(tab, navEl);
+    }
+
     function switchTab(tab, el) {
       document.querySelectorAll('.nav-item').forEach(t => t.classList.remove('active'));
       el.classList.add('active');
@@ -419,6 +559,18 @@
       });
       if (tab === 'dispatch') loadDispatch();
       if (tab === 'low' || tab === 'dead') loadAnalytics();
+    }
+
+    function quickRack(rackCode, chipEl) {
+      document.querySelectorAll('.rack-chip').forEach(c => c.classList.remove('active'));
+      chipEl.classList.add('active');
+      if (!rackCode) {
+        document.getElementById('stockQuery').value = '';
+        document.getElementById('stockResults').innerHTML = '<div class="empty">🔍 Search Part Number, Name, or tap a <b>Rack Chip (GA01–GA06)</b><br/>or tap <b>📷</b> to scan QR / Barcode.</div>';
+        return;
+      }
+      document.getElementById('stockQuery').value = rackCode;
+      searchStock();
     }
 
     const stockSearchCache = {};
@@ -455,6 +607,7 @@
       }
       box.innerHTML = data.map(item => {
         const onOrder = (Number(item.bo) || 0) + (Number(item.allo) || 0) + (Number(item.up) || 0) + (Number(item.inv) || 0);
+        const safeName = String(item.partName || '').replace(/'/g, '');
         return `
           <div class="card">
             <div class="card-accent" style="background:${item.stock > 0 ? 'var(--green)' : 'var(--red)'};"></div>
@@ -475,7 +628,10 @@
               <span>U/P: <b>${item.up}</b></span>
               <span>INV: <b>${item.inv}</b></span>
             </div>
-            <button class="btn btn-outline" onclick="openModal(${item.row}, '${item.partNum}', ${item.stock}, '${item.bin}')">✏️ Update Stock / Bin</button>
+            <div class="card-btn-row">
+              <button class="btn btn-quote" onclick="shareWhatsAppQuote('${item.partNum}', '${safeName}', ${item.mrp}, ${item.stock}, 'DDLB702')">📲 Quote</button>
+              <button class="btn btn-outline" onclick="openModal(${item.row}, '${item.partNum}', ${item.stock}, '${item.bin}')">${isAdmin ? '✏️ Edit Bin/Qty' : '📍 Edit Bin'}</button>
+            </div>
           </div>
         `;
       }).join('');
@@ -492,22 +648,28 @@
           box.innerHTML = `<div class="empty">Part <b>${raw.toUpperCase()}</b> not available in Shruti or Shakti ❌</div>`;
           return;
         }
-        box.innerHTML = data.map(d => `
-          <div class="card">
-            <div class="card-accent" style="background:${d.dealer === 'Shruti' ? '#2563eb' : '#059669'};"></div>
-            <div class="card-header">
-              <div class="part-num">${d.partNum}</div>
-              <div class="bin-badge" style="background:${d.dealer === 'Shruti' ? '#dbeafe' : '#dcfce7'};color:${d.dealer === 'Shruti' ? '#1e40af' : '#166534'};border:none;">🏢 ${d.dealer}</div>
+        box.innerHTML = data.map(d => {
+          const safeName = String(d.partName || '').replace(/'/g, '');
+          return `
+            <div class="card">
+              <div class="card-accent" style="background:${d.dealer === 'Shruti' ? '#2563eb' : '#059669'};"></div>
+              <div class="card-header">
+                <div class="part-num">${d.partNum}</div>
+                <div class="bin-badge" style="background:${d.dealer === 'Shruti' ? '#dbeafe' : '#dcfce7'};color:${d.dealer === 'Shruti' ? '#1e40af' : '#166534'};border:none;">🏢 ${d.dealer}</div>
+              </div>
+              <div class="part-desc">${d.partName} · Root: ${d.rootNum || '-'}</div>
+              <div style="font-size:12px;color:#334155;margin-bottom:8px;">📍 <b>${d.locCode}</b> — ${d.locDesc}</div>
+              <div class="metrics">
+                <div><div class="metric-label">Stock</div><div class="metric-val ${d.stock > 0 ? 'green' : 'red'}">${d.stock}</div></div>
+                <div><div class="metric-label">Dealer</div><div class="metric-val">${d.dealer}</div></div>
+                <div><div class="metric-label">Branch</div><div class="metric-val">${d.locCode}</div></div>
+              </div>
+              <div class="card-btn-row">
+                <button class="btn btn-quote" onclick="shareWhatsAppQuote('${d.partNum}', '${safeName}', '-', ${d.stock}, '${d.dealer} ${d.locCode}')">📲 Share Co-Dealer Stock</button>
+              </div>
             </div>
-            <div class="part-desc">${d.partName} · Root: ${d.rootNum || '-'}</div>
-            <div style="font-size:12px;color:#334155;margin-bottom:8px;">📍 <b>${d.locCode}</b> — ${d.locDesc}</div>
-            <div class="metrics">
-              <div><div class="metric-label">Stock</div><div class="metric-val ${d.stock > 0 ? 'green' : 'red'}">${d.stock}</div></div>
-              <div><div class="metric-label">Dealer</div><div class="metric-val">${d.dealer}</div></div>
-              <div><div class="metric-label">Branch</div><div class="metric-val">${d.locCode}</div></div>
-            </div>
-          </div>
-        `).join('');
+          `;
+        }).join('');
       } catch (e) {
         box.innerHTML = '<div class="empty">Error checking co-dealer stock ❌</div>';
       }
@@ -586,10 +748,11 @@
     let dispatchCache = [];
     async function loadDispatch() {
       const box = document.getElementById('dispatchResults');
-      box.innerHTML = '<div class="empty">Loading dispatch shipments... ⏳</div>';
+      if (!dispatchCache.length) box.innerHTML = '<div class="empty">Loading dispatch shipments... ⏳</div>';
       try {
         const res = await fetch(`${API_URL}?action=dispatch`);
         dispatchCache = await res.json();
+        document.getElementById('kpiDisp').innerText = dispatchCache.length;
         filterDispatchCards();
       } catch (e) {
         box.innerHTML = '<div class="empty">Failed to load dispatch list.</div>';
@@ -788,6 +951,10 @@
         return { ...item, onOrder: ord, suggestedOrder: suggested, netOrder: Math.max(0, suggested - ord) };
       });
 
+      document.getElementById('kpiZero').innerText = processedLowList.filter(x => x.stock === 0).length;
+      document.getElementById('kpiDeadParts').innerText = '₹' + Math.round((analyticsCache.totalDeadPartsValue || 0) / 1000) + 'k';
+      document.getElementById('kpiDeadAcc').innerText = '₹' + Math.round((analyticsCache.totalDeadAccValue || 0) / 1000) + 'k';
+
       document.getElementById('lowSummary').style.display = 'flex';
       document.getElementById('lowActions').style.display = 'flex';
       renderLowStockCards();
@@ -799,8 +966,12 @@
 
     function openModal(row, partNum, stock, bin) {
       document.getElementById('editRow').value = row;
-      document.getElementById('modalTitle').innerText = `Update: ${partNum}`;
-      document.getElementById('editStock').value = stock;
+      document.getElementById('modalTitle').innerText = isAdmin ? `Update Stock & Bin: ${partNum}` : `Update Bin Only: ${partNum}`;
+      const stockInput = document.getElementById('editStock');
+      stockInput.value = stock;
+      stockInput.disabled = !isAdmin;
+      stockInput.style.background = isAdmin ? '#fff' : '#f1f5f9';
+      stockInput.style.color = isAdmin ? '#0f172a' : '#64748b';
       document.getElementById('editBin').value = bin;
       document.getElementById('editNote').value = '';
       document.getElementById('updateModal').style.display = 'flex';
@@ -826,6 +997,14 @@
         alert('Update failed: ' + e);
       }
     }
+
+    window.addEventListener('load', () => {
+      fetch(`${API_URL}?action=dispatch`).then(r => r.json()).then(d => {
+        dispatchCache = d || [];
+        document.getElementById('kpiDisp').innerText = dispatchCache.length;
+      }).catch(() => {});
+      loadAnalytics();
+    });
   </script>
 </body>
 </html>
