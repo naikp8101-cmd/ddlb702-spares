@@ -188,7 +188,8 @@
       if (navigator.clipboard) {
         navigator.clipboard.writeText(cleanGr).catch(() => {});
       }
-      if (tr.includes('SCOU') || tr.includes('TCI')) {
+            if (tr === 'SCOU-XPS' || tr.includes('TCI')) {
+
         showToast(`GR No ${cleanGr} copied — Paste in TCI Express...`);
         window.open('https://www.tciexpress.in/', '_blank');
       } else {
@@ -445,7 +446,7 @@
       }
     }
 
-        function filterDispatchCards() {
+            function filterDispatchCards() {
       const q = (document.getElementById('dispatchFilter').value || '').trim().toUpperCase();
       const box = document.getElementById('dispatchResults');
       const filtered = dispatchCache.filter(d =>
@@ -461,30 +462,26 @@
       }
       box.innerHTML = filtered.map(d => {
         const hasGr = d.grNo && String(d.grNo).trim() !== '' && String(d.grNo).trim().toUpperCase() !== 'NA';
-        const isTci = String(d.transporter || '').toUpperCase().includes('SCOU') || String(d.transporter || '').toUpperCase().includes('TCI');
-        const courierStyle = isTci
-          ? 'background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;'
-          : 'background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;';
         return `
           <div class="card">
-            <div class="card-header">
-              <div class="part-num" style="color:#1d4ed8;text-decoration:underline;cursor:pointer;" onclick="openFinParts('${d.finNo}')">FIN: ${d.finNo || '-'} 📋</div>
-              <div class="bin-badge">${d.location || '-'}</div>
+            <div class="card-header" style="margin-bottom:4px;">
+              <div class="part-num" style="color:#1d4ed8;text-decoration:underline;cursor:pointer;font-size:17px;" onclick="openFinParts('${d.finNo}')">FIN: ${d.finNo || '-'} 📋</div>
+              <div class="bin-badge" style="font-size:13px;font-weight:800;">₹${d.value || 0}</div>
             </div>
-            <div style="margin-bottom:8px;">
-              <span style="${courierStyle}padding:4px 10px;border-radius:8px;font-size:12px;font-weight:800;display:inline-block;">🚚 ${d.transporter || 'Courier'} ${d.truckNo ? '• ' + d.truckNo : ''}</span>
+            <div style="font-size:13px;color:#475569;padding-bottom:8px;border-bottom:1px solid #e2e8f0;margin-bottom:8px;">
+              🚚 <b style="color:#1e293b;">${d.transporter || '-'}</b> | Truck: <b style="color:#0f172a;">${d.truckNo || '-'}</b>
             </div>
-            <div class="details-grid">
-              <div><span style="color:#64748b">GR / Docket:</span> <b style="color:#0f172a;">${d.grNo || '-'}</b></div>
-              <div><span style="color:#64748b">Value:</span> <b style="color:#059669;">₹${d.value || 0}</b></div>
-              ${d.currLoc && d.currLoc !== 'NA' ? `<div><span style="color:#64748b">Location:</span> <b style="color:#b45309;">${d.currLoc}</b></div>` : ''}
-              ${d.eta && d.eta !== 'NA' ? `<div><span style="color:#64748b">ETA:</span> <b style="color:#1e3a8a;">${d.eta}</b></div>` : ''}
+            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;gap:8px;flex-wrap:wrap;">
+              <div><span style="color:#64748b;">GR:</span> <b style="color:#0f172a;">${d.grNo || '-'}</b></div>
+              ${d.currLoc && d.currLoc !== 'NA' ? `<div><span style="color:#64748b;">Loc:</span> <b style="color:#0f172a;">${d.currLoc}</b></div>` : `<div><span style="color:#64748b;">From:</span> <b>${d.location || '-'}</b></div>`}
             </div>
-            ${hasGr ? `<button class="btn btn-track" onclick="trackShipment('${d.grNo}', '${d.transporter}')">📍 Live Track Shipment (${isTci ? 'TCI Express' : 'AfterShip'})</button>` : ''}
+            ${d.eta && d.eta !== 'NA' ? `<div style="font-size:13px;font-weight:800;color:#059669;margin-bottom:8px;">📅 ETA: ${d.eta}</div>` : ''}
+            ${hasGr ? `<button class="btn btn-track" onclick="trackShipment('${d.grNo}', '${d.transporter}')">📍 Track Shipment</button>` : ''}
           </div>
         `;
       }).join('');
     }
+
 
     async function openFinParts(finNo) {
       if (!finNo || finNo === '-') return;
