@@ -334,7 +334,7 @@
           box.innerHTML = `<div class="empty">Part <b>${q}</b> was not found in B/O, ALLO, Under Picking, Under Invoice, or Invoice!</div>`;
           return;
         }
-        box.innerHTML = list.map(item => {
+                box.innerHTML = list.map(item => {
           const badgeClass =
             item.stage === 'B/O' ? 'stage-bo' :
             item.stage === 'ALLO' ? 'stage-allo' :
@@ -347,9 +347,6 @@
             item.stage === 'UNDER PICKING' ? '#2563eb' :
             item.stage === 'UNDER INVOICE' ? '#7c3aed' : '#059669';
 
-          const detailsHtml = Object.entries(item.details || {})
-            .filter(([k, v]) => v !== '' && v !== null && v !== undefined)
-            .map(([k, v]) => `<div><span style="color:#64748b">${k}:</span> <b>${v}</b></div>`)
             .join('');
 
           const orderDateVal = (item.details && (item.details['Order Date'] || item.details['Order_Date'] || item.details['Date'])) || '';
