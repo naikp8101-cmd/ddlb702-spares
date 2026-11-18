@@ -469,16 +469,149 @@
       navigator.clipboard.writeText(lines.join('\n')).then(() => showToast(`Copied ${toOrder.length} parts to clipboard!`));
     }
 
+    const finPartsCache = {};
+
+    function renderDispatchCards(list) {
+      const box = document.getElementById('dispatchResults');
+      if (!list.length) { box.innerHTML = '<div class="empty">No dispatch records found.</div>'; return; }
+      box.innerHTML = list.map(d => {
+        const hasGr = d.grNo && String(d.grNo).trim() !== '' && String(d.grNo).trim().toUpperCase() !== 'NA';
+        const finStr = String(d.finNo || '').trim();
+        return `
+          <div class="card">
+            <div class="card-header">
+              <div class="part-num" onclick="showFinParts('${finStr}')" style="color:#1d4ed8;text-decoration:underline;cursor:pointer;">FIN: ${finStr || '-'} 📋</div>
+              <div class="bin-badge">₹${d.value || 0}</div>
+            </div>
+            <div class="part-desc">🚚 ${d.transporter || '-'} | Truck: <b>${d.truckNo || '-'}</b></div>
+            <div class="sub-metrics">
+              <span>GR: <b>${d.grNo || '-'}</b></span>
+              <span>Loc: <b>${(d.currLoc && d.currLoc !== 'NA') ? d.currLoc : (d.location || '-')}</b></span>
+            </div>
+            ${(d.eta && d.eta !== 'NA') ? `<div style="margin-top:6px;font-size:12px;color:#059669;font-weight:600;">📅 ETA: ${d.eta}</div>` : ''}
+            ${hasGr ? `<button class="btn btn-track" onclick="trackShipment('${d.grNo}', '${d.transporter}')">📍 Track Shipment</button>` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function showFinParts(finNo) {
+      if (!finNo || finNo === '-') return;
+      let modal = document.getElementById('finPartsModal');
+      if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'finPartsModal';
+        modal.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;align-items:center;justify-content:center;padding:16px;';
+        modal.innerHTML = `
+          <div style="background:#fff;border-radius:14px;width:100%;max-width:440px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 25px rgba(0,0,0,0.3);">
+            <div style="padding:14px 16px;background:#1e3a8a;color:#fff;display:flex;justify-content:space-between;align-items:center;">
+              <b id="finModalTitle" style="font-size:15px;">FIN Parts</b>
+              <button onclick="document.getElementById('finPartsModal').style.display='none'" style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer;">✕</button>
+            </div>
+            <div id="finModalBody" style="padding:14px;overflow-y:auto;font-size:13px;"></div>
+          </div>`;
+        modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+        document.body.appendChild(modal);
+      }
+
+      document.getElementById('finModalTitle').innerText = `FIN: ${finNo} — Parts List`;
+      const body = document.getElementById('finModalBody');
+      modal.style.display = 'flex';
+
+      if (finPartsCache[finNo]) {
+        renderFinPartsBody(finPartsCache[finNo], body);
+        return;
+      }
+
+      body.innerHTML = '<div class="empty">Loading parts... ⏳</div>';
+      try {
+        const res = await fetch(`${API_URL}?action=fin_parts&q=${encodeURIComponent(finNo)}`);
+        const items = await res.json();
+        finPartsCache[finNo] = items || [];
+        renderFinPartsBody(finPartsCache[finNo], body);
+      } catch (e) {
+        body.innerHTML = '<div class="empty">Failed to load parts list.</div>';
+      }
+    }
+
+    function renderFinPartsBody(items, body) {
+      if (!items || !items.length) {
+        body.innerHTML = '<div class="empty">No parts found in INVOICE sheet for this FIN!</div>';
+        return;
+      }
+      const totalQty = items.reduce((s, x) => s + (Number(x.qty) || 0), 0);
+      body.innerHTML = `
+        <div style="display:flex;justify-content:space-between;background:#eff6ff;padding:8px 12px;border-radius:8px;margin-bottom:10px;font-weight:700;color:#1e40af;">
+          <span>Total Items: ${items.length}</span>
+          <span>Total Qty: ${totalQty}</span>
+        </div>
+        ${items.map((p, idx) => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px;border-bottom:1px solid #e2e8f0;">
+            <div>
+              <div style="font-weight:700;color:#0f172a;">${idx + 1}. ${p.partNum}</div>
+              <div style="font-size:11px;color:#64748b;">${p.partName || '-'}</div>
+            </div>
+            <div style="background:#dcfce7;color:#166534;font-weight:700;padding:4px 10px;border-radius:8px;font-size:13px;">Qty: ${p.qty}</div>
+          </div>
+        `).join('')}
+      `;
+    }
+
+    let analyticsCache = null;
+    let onlyNotOrdered = false;
+    let processedLowList = [];
+
+    function toggleNotOrderedFilter() {
+      onlyNotOrdered = !onlyNotOrdered;
+      const btn = document.getElementById('btnNotOrdered');
+      btn.classList.toggle('active', onlyNotOrdered);
+      renderLowStockCards();
+    }
+
+    function renderLowStockCards() {
+      const list = onlyNotOrdered ? processedLowList.filter(x => (Number(x.onOrder) || 0) === 0) : processedLowList;
+      document.getElementById('lowSummary').innerHTML = `<span>⚠️ Low Stock: ${list.length} Items</span><span>${onlyNotOrdered ? 'Not Ordered Only' : 'All Low Stock ▾'}</span>`;
+      document.getElementById('lowResults').innerHTML = list.length ? list.map(item => `
+        <div class="card" style="border-left-color:${item.netOrder > 0 ? '#dc2626' : '#f59e0b'};">
+          <div class="card-header">
+            <div class="part-num">${item.partNum}</div>
+            <div class="bin-badge">📍 ${item.bin}</div>
+          </div>
+          <div class="part-desc">${item.partName}</div>
+          <div class="metrics-4">
+            <div><div class="metric-label">Stock</div><div class="metric-val red">${item.stock}</div></div>
+            <div><div class="metric-label">6M Sale</div><div class="metric-val">${item.consumed}</div></div>
+            <div><div class="metric-label">On Order</div><div class="metric-val amber">${item.onOrder}</div></div>
+            <div><div class="metric-label">Net Order</div><div class="metric-val green">+${item.netOrder}</div></div>
+          </div>
+        </div>
+      `).join('') : '<div class="empty">No matching Low Stock parts!</div>';
+    }
+
     function downloadCSV(filename, rows) {
       const csv = rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
       a.download = filename;
       a.click();
     }
 
-        function downloadDeadStockCSV() {
+    function copyLowStockOrder() {
+      const list = onlyNotOrdered ? processedLowList.filter(x => (Number(x.onOrder) || 0) === 0) : processedLowList;
+      if (!list.length) return;
+      const text = list.map(i => `${i.partNum}\t${i.netOrder}`).join('\n');
+      navigator.clipboard.writeText(text).then(() => showToast(`Copied ${list.length} order items!`));
+    }
+
+    function downloadLowStockCSV() {
+      const list = onlyNotOrdered ? processedLowList.filter(x => (Number(x.onOrder) || 0) === 0) : processedLowList;
+      if (!list.length) return;
+      const rows = [['Part Number', 'Part Name', 'Bin', 'Stock', '6M Sale', 'On Order', 'Net Order']];
+      list.forEach(i => rows.push([i.partNum, i.partName, i.bin, i.stock, i.consumed, i.onOrder, i.netOrder]));
+      downloadCSV('DDLB702_Low_Stock.csv', rows);
+    }
+
+    function downloadDeadStockCSV() {
       const dead = (analyticsCache && analyticsCache.deadStock) || [];
       if (!dead.length) return;
       const rows = [['Part Number', 'Part Name', 'Bin', 'Stock', 'MRP', 'Dead Value']];
