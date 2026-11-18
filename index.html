@@ -406,68 +406,7 @@
       const q = document.getElementById('dispatchFilter').value.trim().toUpperCase();
       if (!q) return renderDispatchCards(currentDispatchList);
       renderDispatchCards(currentDispatchList.filter(d => Object.values(d).some(v => String(v).toUpperCase().includes(q))));
-    }
-
-      function renderDispatchCards(list) {
-      const box = document.getElementById('dispatchResults');
-      if (!list.length) { box.innerHTML = '<div class="empty">No dispatch records found.</div>'; return; }
-      box.innerHTML = list.map(d => {
-        const hasGr = d.grNo && String(d.grNo).trim() !== '' && String(d.grNo).trim().toUpperCase() !== 'NA';
-        return `
-          <div class="card">
-            <div class="card-header">
-              <div class="part-num">FIN: ${d.finNo || '-'}</div>
-              <div class="bin-badge">₹${d.value || 0}</div>
-            </div>
-            <div class="part-desc">🚚 <b>${d.transporter || '-'}</b> | Truck: <b>${d.truckNo || '-'}</b></div>
-            <div class="sub-metrics">
-              <span>GR: <b>${d.grNo || '-'}</b></span>
-              <span>Loc: <b>${d.currLoc && d.currLoc !== 'NA' ? d.currLoc : (d.location || '-')}</b></span>
-            </div>
-            ${d.eta && d.eta !== 'NA' ? `<div style="margin-top:6px; font-size:12px; color:#047857; font-weight:700; background:#ecfdf5; padding:6px 8px; border-radius:6px;">🕒 ETA: ${d.eta}</div>` : ''}
-            ${hasGr ? `<button class="btn btn-track" onclick="trackShipment('${d.grNo}', '${d.transporter}')">🔍 Live Track (${d.grNo})</button>` : ''}
-          </div>
-        `;
-      }).join('');
-    }
-
-    let analyticsCache = null;
-    let onlyNotOrdered = false;
-    let processedLowList = [];
-
-    function toggleNotOrderedFilter() {
-      onlyNotOrdered = !onlyNotOrdered;
-      const btn = document.getElementById('btnNotOrdered');
-      btn.classList.toggle('active', onlyNotOrdered);
-      renderLowStockCards();
-    }
-
-    function renderLowStockCards() {
-      const list = onlyNotOrdered ? processedLowList.filter(i => i.netOrder > 0) : processedLowList;
-      document.getElementById('lowSummary').innerHTML = `<span>⚠️ Low Stock: ${list.length} Items</span><span onclick="toggleNotOrderedFilter()" style="cursor:pointer; text-decoration:underline;">${onlyNotOrdered ? 'Not Ordered Only ▾' : 'All Low Stock ▾'}</span>`;
-      document.getElementById('lowResults').innerHTML = list.length ? list.map(item => `
-        <div class="card" style="border-left-color:${item.netOrder > 0 ? '#dc2626' : '#f59e0b'};">
-          <div class="card-header">
-            <div class="part-num">${item.partNum}</div>
-            <div class="bin-badge">📍 ${item.bin}</div>
-          </div>
-          <div class="part-desc">${item.partName}</div>
-          <div class="metrics-4">
-            <div><div class="metric-label">Stock</div><div class="metric-val red">${item.stock}</div></div>
-            <div><div class="metric-label">6M Sale</div><div class="metric-val">${item.consumed}</div></div>
-            <div><div class="metric-label">On Order</div><div class="metric-val amber">${item.onOrder}</div></div>
-            <div><div class="metric-label">Net Order</div><div class="metric-val green">+${item.netOrder}</div></div>
-          </div>
-        </div>
-      `).join('') : '<div class="empty">No matching Low Stock parts!</div>';
-    }
-
-    function copyLowStockOrderList() {
-      const toOrder = processedLowList.filter(i => i.netOrder > 0);
-      if (!toOrder.length) return showToast('No pending items to order!');
-      const lines = ['*DDLB702 Spares - Order List*', ...toOrder.map((i, idx) => `${idx + 1}. ${i.partNum} | Qty: ${i.netOrder} (Stk:${i.stock}, Ord:${i.onOrder})`)];
-      navigator.clipboard.writeText(lines.join('\n')).then(() => showToast(`Copied ${toOrder.length} parts to clipboard!`));
-    }
+ 
 
     const finPartsCache = {};
 
