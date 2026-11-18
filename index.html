@@ -410,22 +410,27 @@
 
     const finPartsCache = {};
 
-    function renderDispatchCards(list) {
+        function renderDispatchCards(list) {
       const box = document.getElementById('dispatchResults');
       if (!list.length) { box.innerHTML = '<div class="empty">No dispatch records found.</div>'; return; }
       box.innerHTML = list.map(d => {
         const hasGr = d.grNo && String(d.grNo).trim() !== '' && String(d.grNo).trim().toUpperCase() !== 'NA';
         const finStr = String(d.finNo || '').trim();
+        const originLoc = (d.location && String(d.location).trim().toUpperCase() !== 'NA') ? String(d.location).trim() : '-';
+        const liveLoc = (d.currLoc && String(d.currLoc).trim().toUpperCase() !== 'NA') ? String(d.currLoc).trim() : '';
         return `
           <div class="card">
             <div class="card-header">
               <div class="part-num" onclick="showFinParts('${finStr}')" style="color:#1d4ed8;text-decoration:underline;cursor:pointer;">FIN: ${finStr || '-'} 📋</div>
-              <div class="bin-badge">₹${d.value || 0}</div>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <span style="background:#e0e7ff;color:#1e3a8a;padding:4px 8px;border-radius:12px;font-size:11px;font-weight:800;">🏭 ${originLoc}</span>
+                <div class="bin-badge">₹${d.value || 0}</div>
+              </div>
             </div>
-            <div class="part-desc">🚚 ${d.transporter || '-'} | Truck: <b>${d.truckNo || '-'}</b></div>
+            <div class="part-desc">🚚 <span style="background:#fef3c7;color:#b45309;font-weight:800;padding:2px 8px;border-radius:6px;border:1px solid #fde68a;">${d.transporter || '-'}</span> | Truck: <b>${d.truckNo || '-'}</b></div>
             <div class="sub-metrics">
               <span>GR: <b>${d.grNo || '-'}</b></span>
-              <span>Loc: <b>${(d.currLoc && d.currLoc !== 'NA') ? d.currLoc : (d.location || '-')}</b></span>
+              <span>${liveLoc ? `Live Loc: <b>${liveLoc}</b>` : `From: <b>${originLoc}</b>`}</span>
             </div>
             ${(d.eta && d.eta !== 'NA') ? `<div style="margin-top:6px;font-size:12px;color:#059669;font-weight:600;">📅 ETA: ${d.eta}</div>` : ''}
             ${hasGr ? `<button class="btn btn-track" onclick="trackShipment('${d.grNo}', '${d.transporter}')">📍 Track Shipment</button>` : ''}
@@ -433,6 +438,7 @@
         `;
       }).join('');
     }
+
 
     async function showFinParts(finNo) {
       if (!finNo || finNo === '-') return;
