@@ -303,7 +303,194 @@
     <div class="nav-item" onclick="switchTab('low', this)"><span class="nav-icon">⚠️</span><span>Reorder</span></div>
     <div class="nav-item" onclick="switchTab('dead', this)"><span class="nav-icon">💤</span><span>Dead</span></div>
   </nav>
-      async function searchDealerStock() {
+      
+            <div class="modal" id="updateModal">
+    <div class="modal-content">
+      <h3 id="modalTitle">Update Stock</h3>
+      <input type="hidden" id="editRow" />
+      <div class="form-group">
+        <label>New Stock Quantity</label>
+        <input type="number" id="editStock" />
+      </div>
+      <div class="form-group">
+        <label>Bin Location (e.g. GA01A01)</label>
+        <input type="text" id="editBin" />
+      </div>
+      <div class="form-group">
+        <label>Remark / Note (Optional)</label>
+        <input type="text" id="editNote" placeholder="e.g. Physical count verified" />
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-outline" style="margin-top:0;" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" style="width:100%;" onclick="saveUpdate()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+    const API_URL = 'https://script.google.com/macros/s/AKfycbwHSSG7jePZ0HbBpL-5fnEsyCEpUpmWD771c6x3E3SNBXtGwakJYRJ75iYOmLrApgypZg/exec';
+
+    if (API_URL) localStorage.setItem('ddlb702_url', API_URL.trim());
+
+    let staffName = localStorage.getItem('ddlb702_staff') || 'Praveen';
+    document.getElementById('staffDisplay').innerText = staffName;
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.innerText = msg;
+      t.style.display = 'block';
+      setTimeout(() => { t.style.display = 'none'; }, 3200);
+    }
+
+    function trackShipment(grNo, transporter) {
+      const cleanGr = String(grNo || '').trim();
+      const tr = String(transporter || '').trim().toUpperCase();
+      if (!cleanGr || cleanGr === 'NA' || cleanGr === '-') {
+        alert('GR / Docket Number not available!');
+        return;
+      }
+      if (navigator.clipboard) navigator.clipboard.writeText(cleanGr).catch(() => {});
+      if (tr === 'SCOU-XPS' || tr.includes('TCI')) {
+        showToast(`GR ${cleanGr} copied — Opening TCI Express...`);
+        window.open('https://www.tciexpress.in/', '_blank');
+      } else {
+        showToast(`GR ${cleanGr} copied — Opening AfterShip...`);
+        window.open(`https://www.aftership.com/track/${encodeURIComponent(cleanGr)}`, '_blank');
+      }
+    }
+
+    function setStaffName() {
+      const name = prompt('Enter your name:', staffName);
+      if (name && name.trim()) {
+        staffName = name.trim();
+        localStorage.setItem('ddlb702_staff', staffName);
+        document.getElementById('staffDisplay').innerText = staffName;
+      }
+    }
+
+    function extractPartNumber(rawText) {
+      if (!rawText) return '';
+      const token = rawText.trim().split(/[\s;,|]+/)[0].toUpperCase();
+      return token || rawText.trim().toUpperCase();
+    }
+
+    function formatBinInfo(bin) {
+      const b = String(bin || '').trim().toUpperCase();
+      if (/^GA\d{2}[A-Z]\d{2}$/.test(b)) {
+        return `📍 ${b} <span class="rack-tag">${b.slice(0, 4)}·${b.slice(4, 5)}</span>`;
+      }
+      return `📍 ${b}`;
+    }
+
+    function getAgingBadge(dateStr) {
+      if (!dateStr || dateStr === 'NA') return '';
+      const parsed = new Date(dateStr);
+      if (isNaN(parsed.getTime())) return '';
+      const diffDays = Math.floor((Date.now() - parsed.getTime()) / (1000 * 60 * 60 * 24));
+      if (diffDays > 7) return `<div class="aging-badge">🚨 Pending: ${diffDays} Days</div>`;
+      return '';
+    }
+
+    let activeScanner = null;
+    function toggleScanner(mode) {
+      const divId = mode === 'order' ? 'orderReader' : 'reader';
+      const inputId = mode === 'order' ? 'orderQuery' : 'stockQuery';
+      const readerDiv = document.getElementById(divId);
+
+      if (readerDiv.style.display === 'block') {
+        if (activeScanner) activeScanner.stop().then(() => { readerDiv.style.display = 'none'; });
+        return;
+      }
+      readerDiv.style.display = 'block';
+      activeScanner = new Html5Qrcode(divId);
+      activeScanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 250, height: 150 } },
+        (decodedText) => {
+          const cleanPart = extractPartNumber(decodedText);
+          document.getElementById(inputId).value = cleanPart;
+          activeScanner.stop().then(() => { readerDiv.style.display = 'none'; });
+          if (mode === 'order') searchPartOrderStatus();
+          else searchStock();
+        }
+      ).catch(err => {
+        alert('Camera failed to open: ' + err);
+        readerDiv.style.display = 'none';
+      });
+    }
+
+    function switchTab(tab, el) {
+      document.querySelectorAll('.nav-item').forEach(t => t.classList.remove('active'));
+      el.classList.add('active');
+      ['stock', 'dealer', 'orders', 'dispatch', 'low', 'dead'].forEach(id => {
+        document.getElementById('tab-' + id).style.display = (id === tab) ? 'block' : 'none';
+      });
+      if (tab === 'dispatch') loadDispatch();
+      if (tab === 'low' || tab === 'dead') loadAnalytics();
+    }
+
+    const stockSearchCache = {};
+
+    async function searchStock(forceRefresh = false) {
+      const raw = document.getElementById('stockQuery').value.trim();
+      if (!raw) return;
+      const q = extractPartNumber(raw);
+      document.getElementById('stockQuery').value = q;
+      const box = document.getElementById('stockResults');
+      const cacheKey = q.toUpperCase();
+
+      if (!forceRefresh && stockSearchCache[cacheKey]) {
+        renderStockCards(stockSearchCache[cacheKey]);
+        return;
+      }
+
+      box.innerHTML = '<div class="empty">Searching inventory... ⏳</div>';
+      try {
+        const res = await fetch(`${API_URL}?action=search&q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        stockSearchCache[cacheKey] = data || [];
+        renderStockCards(stockSearchCache[cacheKey]);
+      } catch (e) {
+        box.innerHTML = '<div class="empty">Connection error. Check Apps Script URL.</div>';
+      }
+    }
+
+    function renderStockCards(data) {
+      const box = document.getElementById('stockResults');
+      if (!data || !data.length) {
+        box.innerHTML = '<div class="empty">No matching parts found!</div>';
+        return;
+      }
+      box.innerHTML = data.map(item => {
+        const onOrder = (Number(item.bo) || 0) + (Number(item.allo) || 0) + (Number(item.up) || 0) + (Number(item.inv) || 0);
+        return `
+          <div class="card">
+            <div class="card-accent" style="background:${item.stock > 0 ? 'var(--green)' : 'var(--red)'};"></div>
+            <div class="card-header">
+              <div class="part-num">${item.partNum}</div>
+              <div class="bin-badge">${formatBinInfo(item.bin)}</div>
+            </div>
+            <div class="part-desc">${item.partName} · Root: <b>${item.rootNum || '-'}</b></div>
+            <div class="metrics-4">
+              <div><div class="metric-label">Stock</div><div class="metric-val ${item.stock > 0 ? 'green' : 'red'}">${item.stock}</div></div>
+              <div><div class="metric-label">On Order</div><div class="metric-val amber">${onOrder}</div></div>
+              <div><div class="metric-label">MRP</div><div class="metric-val">₹${item.mrp}</div></div>
+              <div><div class="metric-label">Short/Ex</div><div class="metric-val">${item.shortExcess}</div></div>
+            </div>
+            <div class="sub-metrics">
+              <span>B/O: <b>${item.bo}</b></span>
+              <span>ALLO: <b>${item.allo}</b></span>
+              <span>U/P: <b>${item.up}</b></span>
+              <span>INV: <b>${item.inv}</b></span>
+            </div>
+            <button class="btn btn-outline" onclick="openModal(${item.row}, '${item.partNum}', ${item.stock}, '${item.bin}')">✏️ Update Stock / Bin</button>
+          </div>
+        `;
+      }).join('');
+    }
+        async function searchDealerStock() {
       const raw = document.getElementById('dealerQuery').value.trim();
       if (!raw) return;
       const box = document.getElementById('dealerResults');
@@ -645,5 +832,4 @@
     }
   </script>
 </body>
-                                                </html>
-                                                
+</html>
