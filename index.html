@@ -188,7 +188,7 @@
       if (navigator.clipboard) {
         navigator.clipboard.writeText(cleanGr).catch(() => {});
       }
-      if (tr === 'SCOU' || tr.includes('TCI')) {
+      if (tr.includes('SCOU') || tr.includes('TCI')) {
         showToast(`GR No ${cleanGr} copied — Paste in TCI Express...`);
         window.open('https://www.tciexpress.in/', '_blank');
       } else {
@@ -445,7 +445,7 @@
       }
     }
 
-    function filterDispatchCards() {
+        function filterDispatchCards() {
       const q = (document.getElementById('dispatchFilter').value || '').trim().toUpperCase();
       const box = document.getElementById('dispatchResults');
       const filtered = dispatchCache.filter(d =>
@@ -461,24 +461,56 @@
       }
       box.innerHTML = filtered.map(d => {
         const hasGr = d.grNo && String(d.grNo).trim() !== '' && String(d.grNo).trim().toUpperCase() !== 'NA';
+        const isTci = String(d.transporter || '').toUpperCase().includes('SCOU') || String(d.transporter || '').toUpperCase().includes('TCI');
+        const courierStyle = isTci
+          ? 'background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;'
+          : 'background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;';
         return `
           <div class="card">
             <div class="card-header">
-              <div class="part-num">FIN: ${d.finNo || '-'}</div>
+              <div class="part-num" style="color:#1d4ed8;text-decoration:underline;cursor:pointer;" onclick="openFinParts('${d.finNo}')">FIN: ${d.finNo || '-'} 📋</div>
               <div class="bin-badge">${d.location || '-'}</div>
             </div>
-            <div class="details-grid">
-              <div><span style="color:#64748b">Transporter:</span> <b>${d.transporter || '-'}</b></div>
-              <div><span style="color:#64748b">Truck:</span> <b>${d.truckNo || '-'}</b></div>
-              <div><span style="color:#64748b">GR No:</span> <b>${d.grNo || '-'}</b></div>
-              <div><span style="color:#64748b">Value:</span> <b>₹${d.value || 0}</b></div>
-              ${d.currLoc && d.currLoc !== 'NA' ? `<div><span style="color:#64748b">Loc:</span> <b>${d.currLoc}</b></div>` : ''}
-              ${d.eta && d.eta !== 'NA' ? `<div><span style="color:#64748b">ETA:</span> <b>${d.eta}</b></div>` : ''}
+            <div style="margin-bottom:8px;">
+              <span style="${courierStyle}padding:4px 10px;border-radius:8px;font-size:12px;font-weight:800;display:inline-block;">🚚 ${d.transporter || 'Courier'} ${d.truckNo ? '• ' + d.truckNo : ''}</span>
             </div>
-            ${hasGr ? `<button class="btn btn-track" onclick="trackShipment('${d.grNo}', '${d.transporter}')">📍 Live Track Shipment</button>` : ''}
+            <div class="details-grid">
+              <div><span style="color:#64748b">GR / Docket:</span> <b style="color:#0f172a;">${d.grNo || '-'}</b></div>
+              <div><span style="color:#64748b">Value:</span> <b style="color:#059669;">₹${d.value || 0}</b></div>
+              ${d.currLoc && d.currLoc !== 'NA' ? `<div><span style="color:#64748b">Location:</span> <b style="color:#b45309;">${d.currLoc}</b></div>` : ''}
+              ${d.eta && d.eta !== 'NA' ? `<div><span style="color:#64748b">ETA:</span> <b style="color:#1e3a8a;">${d.eta}</b></div>` : ''}
+            </div>
+            ${hasGr ? `<button class="btn btn-track" onclick="trackShipment('${d.grNo}', '${d.transporter}')">📍 Live Track Shipment (${isTci ? 'TCI Express' : 'AfterShip'})</button>` : ''}
           </div>
         `;
       }).join('');
+    }
+
+    async function openFinParts(finNo) {
+      if (!finNo || finNo === '-') return;
+      const modalBody = document.querySelector('#updateModal .modal-content');
+      const origHtml = modalBody.innerHTML;
+      modalBody.innerHTML = `<h3>📋 FIN: ${finNo}</h3><div class="empty">Loading parts in this invoice... ⏳</div>`;
+      document.getElementById('updateModal').style.display = 'flex';
+      try {
+        const res = await fetch(`${API_URL}?action=fin_parts&q=${encodeURIComponent(finNo)}`);
+        const items = await res.json();
+        const listHtml = items.length ? items.map((it, idx) => `
+          <div style="padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px;">
+            <b>${idx + 1}. ${it.partNum}</b> — Qty: <b style="color:#059669;">${it.qty}</b><br/>
+            <span style="color:#64748b;font-size:12px;">${it.partName}</span>
+          </div>
+        `).join('') : '<div class="empty">No parts found in INVOICE tab for this FIN.</div>';
+        modalBody.innerHTML = `<h3>📋 FIN: ${finNo} (${items.length} items)</h3><div style="max-height:55vh;overflow-y:auto;margin-bottom:12px;">${listHtml}</div><button class="btn btn-primary" style="width:100%;" id="closeFinBtn">Close</button>`;
+        document.getElementById('closeFinBtn').onclick = () => {
+          modalBody.innerHTML = origHtml;
+          closeModal();
+        };
+      } catch (e) {
+        modalBody.innerHTML = origHtml;
+        closeModal();
+        alert('Failed to load FIN parts');
+      }
     }
 
     let analyticsCache = null;
