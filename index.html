@@ -347,7 +347,7 @@
             item.stage === 'UNDER PICKING' ? '#2563eb' :
             item.stage === 'UNDER INVOICE' ? '#7c3aed' : '#059669';
 
-            .join('');
+          
 
           const orderDateVal = (item.details && (item.details['Order Date'] || item.details['Order_Date'] || item.details['Date'])) || '';
           const agingHtml = item.stage === 'B/O' ? getAgingBadge(orderDateVal) : '';
