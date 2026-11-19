@@ -460,28 +460,43 @@
           </div>`;
       }).join('');
     }
-        function preprocessEstimateImage(file) {
-      return new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () => {
-          const scale = img.width < 1600 ? 2 : 1.5;
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.round(img.width * scale);
-          canvas.height = Math.round(img.height * scale);
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const d = imgData.data;
-          for (let i = 0; i < d.length; i += 4) {
-            const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-            const val = gray > 145 ? 255 : (gray < 95 ? 0 : gray);
-            d[i] = d[i + 1] = d[i + 2] = val;
+            function cropAndEnhance(img, startRatio, endRatio) {
+      const scale = img.width < 1800 ? 2.2 : 1.6;
+      const sy = Math.floor(img.height * startRatio);
+      const sh = Math.ceil(img.height * (endRatio - startRatio));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(sh * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, sy, img.width, sh, 0, 0, canvas.width, canvas.height);
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = imgData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        const val = gray > 150 ? 255 : (gray < 95 ? 0 : gray);
+        d[i] = d[i + 1] = d[i + 2] = val;
+      }
+      ctx.putImageData(imgData, 0, 0);
+      return canvas.toDataURL('image/png');
+    }
+
+    function extractOrderedPartsFromText(rawText, listOut) {
+      const lines = rawText.split(/\r?\n/);
+      const regex = /\b([0-9OISB]{5})[\s\-\.]?([A-Z0-9\-]{5,9})\b/g;
+      for (let line of lines) {
+        let m;
+        regex.lastIndex = 0;
+        while ((m = regex.exec(line)) !== null) {
+          let p1 = m[1].replace(/O/g, '0').replace(/I/g, '1').replace(/S/g, '5').replace(/B/g, '8');
+          let p2 = m[2].replace(/[\s\-\.]/g, '');
+          if (!/^\d{5}$/.test(p1)) continue;
+          if (p2.length >= 6 && (p2.startsWith('0') || p2.startsWith('O'))) p2 = 'M' + p2.slice(1);
+          const full = p1 + p2;
+          if (full.length >= 10 && full.length <= 14 && !listOut.includes(full)) {
+            listOut.push(full);
           }
-          ctx.putImageData(imgData, 0, 0);
-          resolve(canvas.toDataURL('image/png'));
-        };
-        img.src = URL.createObjectURL(file);
-      });
+        }
+      }
     }
 
     let lastPickList = [];
@@ -489,30 +504,32 @@
       const file = event.target.files[0];
       if (!file) return;
       const box = document.getElementById('stockResults');
-      box.innerHTML = '<div class="empty">📄 Enhancing & Reading Estimate Sheet... (15-20 sec) ⏳</div>';
+      box.innerHTML = '<div class="empty">📄 High-Accuracy Top & Bottom Scan running... (20-25 sec) ⏳</div>';
       try {
-        const processedImg = await preprocessEstimateImage(file);
+        const img = await new Promise((res) => {
+          const im = new Image();
+          im.onload = () => res(im);
+          im.src = URL.createObjectURL(file);
+        });
+
+        const topImg = cropAndEnhance(img, 0.0, 0.58);
+        const botImg = cropAndEnhance(img, 0.45, 1.0);
+
         const worker = await Tesseract.createWorker('eng');
-        const ret = await worker.recognize(processedImg);
+        const retTop = await worker.recognize(topImg);
+        const retBot = await worker.recognize(botImg);
         await worker.terminate();
-        const rawText = (ret.data.text || '').toUpperCase();
-        const extracted = [];
-        const regex = /\b([0-9O]{5})[\s\-\.]?([M0O\-]?[A-Z0-9]{4,5})\b/g;
-        let m;
-        while ((m = regex.exec(rawText)) !== null) {
-          let p1 = m[1].replace(/O/g, '0');
-          let p2 = m[2].replace(/[\s\-\.]/g, '');
-          if (p2.length === 6 && (p2.startsWith('0') || p2.startsWith('O'))) p2 = 'M' + p2.slice(1);
-          const full = p1 + p2;
-          if (full.length >= 10 && full.length <= 12 && /\d{5}/.test(full)) extracted.push(full);
-        }
-        const uniqueParts = [...new Set(extracted)];
-        if (!uniqueParts.length) {
+
+        const orderedParts = [];
+        extractOrderedPartsFromText((retTop.data.text || '').toUpperCase(), orderedParts);
+        extractOrderedPartsFromText((retBot.data.text || '').toUpperCase(), orderedParts);
+
+        if (!orderedParts.length) {
           box.innerHTML = '<div class="empty">Part numbers clear aagi kanisuttilla. Table-na part numbers hattiiradinda photo tegedu try maadi 📸</div>';
           event.target.value = ''; return;
         }
-        box.innerHTML = `<div class="empty">🔍 Found <b>${uniqueParts.length}</b> parts! Checking Bin Locations & Stock... ⏳</div>`;
-        const res = await fetch(`${API_URL}?action=batch_parts&q=${encodeURIComponent(uniqueParts.join(','))}`);
+        box.innerHTML = `<div class="empty">🔍 Found <b>${orderedParts.length}</b> parts in paper order! Checking Bin Locations... ⏳</div>`;
+        const res = await fetch(`${API_URL}?action=batch_parts&q=${encodeURIComponent(orderedParts.join(','))}`);
         lastPickList = await res.json();
         renderPickListCards();
       } catch (e) { box.innerHTML = '<div class="empty">Error scanning estimate sheet.</div>'; }
@@ -521,23 +538,22 @@
 
     function renderPickListCards() {
       const box = document.getElementById('stockResults');
-      lastPickList.sort((a, b) => {
-        const binA = (a.matches[0] && a.matches[0].bin) ? a.matches[0].bin : 'ZZZ';
-        const binB = (b.matches[0] && b.matches[0].bin) ? b.matches[0].bin : 'ZZZ';
-        return binA.localeCompare(binB);
-      });
       const foundCount = lastPickList.filter(x => x.found && x.matches.some(m => m.stock > 0)).length;
       box.innerHTML = `
-        <div class="summary-banner" style="display:flex;justify-content:space-between;align-items:center;">
-          <div>📋 <b>Estimate Pick List:</b> ${lastPickList.length} Parts (${foundCount} In Stock)</div>
-          <button class="btn btn-quote" style="padding:6px 10px;font-size:12px;flex:0 0 auto;" onclick="sharePickListWhatsApp()">📲 Share List</button>
+        <div class="summary-banner" style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
+          <div>📋 <b>Pick List (Paper Order):</b> ${lastPickList.length} Parts (${foundCount} In Stock)</div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-sm btn-outline" style="border-color:var(--primary);color:var(--primary);" onclick="addMissingScannedPart()">➕ Add Part</button>
+            <button class="btn btn-quote" style="padding:6px 10px;font-size:12px;flex:0 0 auto;" onclick="sharePickListWhatsApp()">📲 Share</button>
+          </div>
         </div>` + lastPickList.map((row, idx) => {
+        const slNo = idx + 1;
         if (!row.found) {
           return `
             <div class="card">
               <div class="card-accent" style="background:#94a3b8;"></div>
               <div class="card-header">
-                <div class="part-num">${row.scannedPart}</div>
+                <div class="part-num"><span style="color:#64748b;font-size:12px;">#${slNo}</span> ${row.scannedPart}</div>
                 <div style="display:flex;gap:6px;align-items:center;">
                   <button class="btn btn-sm btn-outline" style="padding:4px 8px;font-size:11px;border-color:var(--primary);color:var(--primary);" onclick="fixScannedPart(${idx})">✏️ Fix</button>
                   <div class="bin-badge" style="background:#f1f5f9;color:#475569;">NOT IN SHEET</div>
@@ -548,7 +564,10 @@
         return row.matches.map(item => `
           <div class="card">
             <div class="card-accent" style="background:${item.stock > 0 ? 'var(--green)' : 'var(--red)'};"></div>
-            <div class="card-header"><div class="part-num">${item.partNum}</div><div class="bin-badge" style="font-size:13px;font-weight:800;">📍 ${item.bin || 'NOBIN'}</div></div>
+            <div class="card-header">
+              <div class="part-num"><span style="color:#64748b;font-size:12px;">#${slNo}</span> ${item.partNum}</div>
+              <div class="bin-badge" style="font-size:13px;font-weight:800;">📍 ${item.bin || 'NOBIN'}</div>
+            </div>
             <div class="part-desc">${item.partName} ${item.partNum !== row.scannedPart ? `<span style="color:var(--primary);font-weight:700;">(Matched for ${row.scannedPart})</span>` : ''}</div>
             <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-top:6px;">
               <div>Stock: <b style="color:${item.stock > 0 ? 'var(--green)' : 'var(--red)'};">${item.stock}</b></div>
@@ -556,6 +575,21 @@
             </div>
           </div>`).join('');
       }).join('');
+    }
+
+    async function addMissingScannedPart() {
+      const part = prompt('Enter missed Part Number from sheet:');
+      if (!part || !part.trim()) return;
+      const clean = part.trim().toUpperCase();
+      showToast('Adding ' + clean + '... ⏳');
+      try {
+        const res = await fetch(`${API_URL}?action=batch_parts&q=${encodeURIComponent(clean)}`);
+        const arr = await res.json();
+        if (arr && arr[0]) {
+          lastPickList.push(arr[0]);
+          renderPickListCards();
+        }
+      } catch (e) { showToast('Error adding part'); }
     }
 
     async function fixScannedPart(idx) {
@@ -584,6 +618,7 @@
       });
       window.open(`https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`, '_blank');
     }
+
 
     let lastDealerResults = [];
     async function searchDealerStock() {
