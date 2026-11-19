@@ -463,11 +463,57 @@
       setTimeout(() => { t.style.display = 'none'; }, 3200);
     }
 
-    function shareWhatsAppQuote(partNum, partName, mrp, stock, source) {
+        function shareWhatsAppQuote(partNum, partName, mrp, stock, source, binLoc) {
       const status = Number(stock) > 0 ? `✅ Available (Qty: ${stock})` : `⏳ On Order (4-5 Days)`;
-      const msg = `*DDLB702 Maruti Genuine Spares*\nPart No: *${partNum}*\nDescription: ${partName}\nMRP: *₹${mrp}*\nStatus (${source}): ${status}`;
+      const locLine = binLoc && binLoc !== '-' ? `\nBin Location: *📍 ${binLoc}*` : '';
+      const msg = `*DDLB702 Maruti Genuine Spares*\nPart No: *${partNum}*\nDescription: ${partName}\nMRP: *₹${mrp}*${locLine}\nStatus (${source}): ${status}`;
       window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
     }
+
+    function shareOrderWhatsApp(idx) {
+      const item = lastOrderResults[idx];
+      if (!item) return;
+      const lines = [
+        `*DDLB702 Order Pipeline Status*`,
+        `Part No: *${item.partNum}*`,
+        item.partName ? `Description: ${item.partName}` : '',
+        `Current Stage: *${item.stage}*`
+      ];
+      Object.entries(item.details || {}).forEach(([k, v]) => {
+        if (k !== 'Part No' && k !== 'Part Name' && v !== '' && v !== null) {
+          lines.push(`${k}: *${v}*`);
+        }
+      });
+      if (item.tracking) {
+        const t = item.tracking;
+        lines.push(`---`);
+        lines.push(`🚚 FIN: *${t.finNo || '-'}* | GR: *${t.grNo || '-'}*`);
+        lines.push(`Transporter: *${t.transporter || '-'}* | Truck: *${t.truckNo || '-'}*`);
+        if (t.location) lines.push(`From: *${t.location}*`);
+        if (t.currLoc && t.currLoc !== 'NA') lines.push(`Current Loc: *📍 ${t.currLoc}*`);
+        if (t.eta && t.eta !== 'NA') lines.push(`ETA: *${t.eta}*`);
+      }
+      window.open(`https://wa.me/?text=${encodeURIComponent(lines.filter(Boolean).join('\n'))}`, '_blank');
+    }
+
+    function shareDispatchWhatsApp(idx) {
+      const d = lastFilteredDispatch[idx];
+      if (!d) return;
+      const lines = [
+        `*DDLB702 Live Dispatch Update*`,
+        `FIN No: *${d.finNo || '-'}*`,
+        d.finDate ? `Inv Date: *${d.finDate}*` : '',
+        `Invoice Value: *₹${d.value || 0}*`,
+        `Transporter: *${d.transporter || '-'}*`,
+        `Truck No: *${d.truckNo || '-'}*`,
+        `GR / Docket: *${d.grNo || '-'}*`,
+        `From Location: *📍 ${d.location || '-'}*`,
+        (d.currLoc && d.currLoc !== 'NA') ? `Current Loc: *📍 ${d.currLoc}*` : '',
+        (d.eta && d.eta !== 'NA') ? `ETA: *${d.eta}*` : ''
+      ];
+      window.open(`https://wa.me/?text=${encodeURIComponent(lines.filter(Boolean).join('\n'))}`, '_blank');
+    }
+
 
     function trackShipment(grNo, transporter) {
       const cleanGr = String(grNo || '').trim();
@@ -629,7 +675,8 @@
               <span>INV: <b>${item.inv}</b></span>
             </div>
             <div class="card-btn-row">
-              <button class="btn btn-quote" onclick="shareWhatsAppQuote('${item.partNum}', '${safeName}', ${item.mrp}, ${item.stock}, 'DDLB702')">📲 Quote</button>
+                            <button class="btn btn-quote" onclick="shareWhatsAppQuote('${item.partNum}', '${safeName}', ${item.mrp}, ${item.stock}, 'DDLB702', '${item.bin || '-'}')">📲 Quote</button>
+
               <button class="btn btn-outline" onclick="openModal(${item.row}, '${item.partNum}', ${item.stock}, '${item.bin}')">${isAdmin ? '✏️ Edit Bin/Qty' : '📍 Edit Bin'}</button>
             </div>
           </div>
@@ -675,6 +722,7 @@
       }
     }
 
+        let lastOrderResults = [];
     async function searchPartOrderStatus() {
       const raw = document.getElementById('orderQuery').value.trim();
       if (!raw) return;
@@ -685,11 +733,12 @@
       try {
         const res = await fetch(`${API_URL}?action=track_part&q=${encodeURIComponent(q)}`);
         const list = await res.json();
-        if (!list || !list.length) {
+        lastOrderResults = list || [];
+        if (!lastOrderResults.length) {
           box.innerHTML = `<div class="empty">Part <b>${q}</b> not found in B/O, ALLO, Under Picking, Under Invoice, or Invoice.</div>`;
           return;
         }
-        box.innerHTML = list.map(item => {
+        box.innerHTML = lastOrderResults.map((item, idx) => {
           const badgeClass =
             item.stage === 'B/O' ? 'stage-bo' :
             item.stage === 'ALLO' ? 'stage-allo' :
@@ -737,6 +786,9 @@
               <div class="details-grid">${detailsHtml}</div>
               ${agingHtml}
               ${trackingHtml}
+              <div class="card-btn-row">
+                <button class="btn btn-quote" onclick="shareOrderWhatsApp(${idx})">📲 Share Order Status</button>
+              </div>
             </div>
           `;
         }).join('');
@@ -746,6 +798,7 @@
     }
 
     let dispatchCache = [];
+    let lastFilteredDispatch = [];
     async function loadDispatch() {
       const box = document.getElementById('dispatchResults');
       if (!dispatchCache.length) box.innerHTML = '<div class="empty">Loading dispatch shipments... ⏳</div>';
@@ -762,7 +815,7 @@
     function filterDispatchCards() {
       const q = (document.getElementById('dispatchFilter').value || '').trim().toUpperCase();
       const box = document.getElementById('dispatchResults');
-      const filtered = dispatchCache.filter(d =>
+      lastFilteredDispatch = dispatchCache.filter(d =>
         String(d.finNo || '').toUpperCase().includes(q) ||
         String(d.finDate || '').toUpperCase().includes(q) ||
         String(d.grNo || '').toUpperCase().includes(q) ||
@@ -771,11 +824,11 @@
         String(d.location || '').toUpperCase().includes(q) ||
         String(d.currLoc || '').toUpperCase().includes(q)
       );
-      if (!filtered.length) {
+      if (!lastFilteredDispatch.length) {
         box.innerHTML = '<div class="empty">No dispatch records found.</div>';
         return;
       }
-      box.innerHTML = filtered.map(d => {
+      box.innerHTML = lastFilteredDispatch.map((d, idx) => {
         const hasGr = d.grNo && String(d.grNo).trim() !== '' && String(d.grNo).trim().toUpperCase() !== 'NA';
         return `
           <div class="card">
@@ -796,7 +849,10 @@
             </div>
             ${d.currLoc && d.currLoc !== 'NA' ? `<div style="font-size:12px;color:#334155;margin-bottom:5px;">📍 Current Loc: <b style="color:#0f172a;">${d.currLoc}</b></div>` : ''}
             ${d.eta && d.eta !== 'NA' ? `<div style="font-size:12.5px;font-weight:700;color:var(--green);margin-bottom:8px;">📅 ETA: ${d.eta}</div>` : ''}
-            ${hasGr ? `<button class="btn btn-track" onclick="trackShipment('${d.grNo}', '${d.transporter}')">📍 Track Shipment</button>` : ''}
+            <div class="card-btn-row">
+              ${hasGr ? `<button class="btn btn-track" style="margin-top:0;flex:1;" onclick="trackShipment('${d.grNo}', '${d.transporter}')">📍 Track</button>` : ''}
+              <button class="btn btn-quote" onclick="shareDispatchWhatsApp(${idx})">📲 Share</button>
+            </div>
           </div>
         `;
       }).join('');
