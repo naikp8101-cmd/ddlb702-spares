@@ -181,6 +181,7 @@
       <div class="action-bar" id="deadActions" style="display:none;">
         <button class="btn btn-sm btn-filter active" id="btnDeadParts" onclick="switchDeadType('parts')">🔧 Spare Parts</button>
         <button class="btn btn-sm btn-filter" id="btnDeadAcc" onclick="switchDeadType('acc')">✨ Accessories</button>
+        <button class="btn btn-sm btn-filter" id="btnDeadSort" onclick="toggleDeadSort()">📍 Sort: High Value</button>
         <button class="btn btn-sm btn-outline admin-only" onclick="downloadDeadStockCSV()">📥 CSV</button>
       </div>
       <div id="deadResults"><div class="empty">Loading dead stock report... ⏳</div></div>
@@ -213,7 +214,7 @@
   <div id="toast"></div>
 
   <script>
-    const API_URL = 'https://script.google.com/macros/s/AKfycbwHSSG7jePZ0HbBpL-5fnEsyCEpUpmWD771c6x3E3SNBXtGwakJYRJ75iYOmLrApgypZg/exec';
+    const API_URL = 'PASTE_YOUR_APPS_SCRIPT_URL_HERE';
     const ADMIN_PIN = '7020';
 
     if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js').catch(() => {}); }
@@ -271,6 +272,20 @@
       window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
     }
 
+    function shareCoDealerWhatsApp(idx) {
+      const d = lastDealerResults[idx];
+      if (!d) return;
+      const lines = [
+        `*🏢 Co-Dealer Stock Availability*`,
+        `Dealer: *${d.dealer}* (${d.locCode}${d.locDesc ? ' - ' + d.locDesc : ''})`,
+        `Part No: *${d.partNum}*`,
+        d.rootNum ? `Root No: *${d.rootNum}*` : '',
+        `Description: ${d.partName}`,
+        `Available Stock: *${d.stock} Nos*`
+      ];
+      window.open(`https://wa.me/?text=${encodeURIComponent(lines.filter(Boolean).join('\n'))}`, '_blank');
+    }
+
     function shareOrderWhatsApp(idx) {
       const item = lastOrderResults[idx];
       if (!item) return;
@@ -292,7 +307,7 @@
       const lines = [
         `*DDLB702 Live Dispatch Update*`, `FIN No: *${d.finNo || '-'}*`,
         d.finDate ? `Inv Date: *${d.finDate}*` : '', `Invoice Value: *₹${d.value || 0}*`,
-        `Transporter: *${d.transporter || '-'}*`, `Truck No: *${d.truckNo || '-'}*`,
+        `Courier: *${d.transporter || '-'}*`, `Truck No: *${d.truckNo || '-'}*`,
         `GR / Docket: *${d.grNo || '-'}*`, `From Location: *${d.location || '-'}*`,
         (d.currLoc && d.currLoc !== 'NA') ? `Current Loc: *${d.currLoc}* (${d.currState || ''})` : '',
         (d.eta && d.eta !== 'NA') ? `📅 ETA: *${d.eta}*` : ''
@@ -305,11 +320,11 @@
       const tr = String(transporter || '').trim().toUpperCase();
       if (!cleanGr || cleanGr === 'NA' || cleanGr === '-') { alert('GR / Docket Number not available'); return; }
       if (navigator.clipboard) navigator.clipboard.writeText(cleanGr).catch(() => {});
-      if (tr === 'SCOU XPS' || tr.includes('TCI')) {
-        showToast(`GR ${cleanGr} copied - Opening TCI Express...`);
-        window.open('https://www.tciexpress.in/', '_blank');
+      if (tr.includes('SCOU') || tr.includes('XPS') || tr.includes('TCI')) {
+        showToast(`GR ${cleanGr} copied! Opening TCI Express...`);
+        window.open(`https://www.tciexpress.in/trackingdocket.aspx?docketno=${encodeURIComponent(cleanGr)}`, '_blank');
       } else {
-        showToast(`GR ${cleanGr} copied - Opening AfterShip...`);
+        showToast(`GR ${cleanGr} copied! Opening AfterShip...`);
         window.open(`https://www.aftership.com/track/${encodeURIComponent(cleanGr)}`, '_blank');
       }
     }
@@ -517,7 +532,7 @@
             <div class="card">
               <div class="card-accent" style="background:${item.stock > 0 ? 'var(--green)' : 'var(--red)'};"></div>
               <div class="card-header"><div class="part-num">${item.partNum}</div><div class="bin-badge" style="font-size:13px;font-weight:800;">📍 ${item.bin || 'NOBIN'}</div></div>
-              <div class="part-desc">${item.partName} ${item.partNum !== row.scannedPart ? `<span style="color:var(--primary);font-weight:700;">(Alt for ${row.scannedPart})</span>` : ''}</div>
+              <div class="part-desc">${item.partName} ${item.partNum !== row.scannedPart ? `<span style="color:var(--primary);font-weight:700;">(Matched for ${row.scannedPart})</span>` : ''}</div>
               <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-top:6px;">
                 <div>Stock: <b style="color:${item.stock > 0 ? 'var(--green)' : 'var(--red)'};">${item.stock}</b></div>
                 <div>MRP: <b>₹${item.mrp}</b></div>
@@ -538,6 +553,7 @@
       window.open(`https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`, '_blank');
     }
 
+    let lastDealerResults = [];
     async function searchDealerStock() {
       const raw = document.getElementById('dealerQuery').value.trim();
       if (!raw) return;
@@ -546,23 +562,21 @@
       try {
         const res = await fetch(`${API_URL}?action=dealer_stock&q=${encodeURIComponent(raw)}`);
         const data = await res.json();
-        if (!data || !data.length) { box.innerHTML = `<div class="empty">Part <b>${raw.toUpperCase()}</b> not available in Shruti or Shakti ❌</div>`; return; }
-        box.innerHTML = data.map(d => {
-          const safeName = String(d.partName || '').replace(/'/g, '');
-          return `
-            <div class="card">
-              <div class="card-accent" style="background:${d.dealer === 'Shruti' ? '#7c3aed' : '#0284c7'};"></div>
-              <div class="card-header"><div class="part-num">${d.partNum}</div><div class="bin-badge" style="background:${d.dealer === 'Shruti' ? '#f3e8ff' : '#e0f2fe'};color:${d.dealer === 'Shruti' ? '#6b21a8' : '#0369a1'};">${d.dealer}</div></div>
-              <div class="part-desc">${d.partName} · Root: <b>${d.rootNum || '-'}</b></div>
-              <div style="font-size:12px;color:#334155;margin-bottom:8px;">📍 <b>${d.locCode}</b> · ${d.locDesc}</div>
-              <div class="metrics" style="grid-template-columns:1fr 1fr 1fr;">
-                <div><div class="metric-label">Stock</div><div class="metric-val green">${d.stock}</div></div>
-                <div><div class="metric-label">Dealer</div><div class="metric-val">${d.dealer}</div></div>
-                <div><div class="metric-label">Branch</div><div class="metric-val">${d.locCode}</div></div>
-              </div>
-              <div class="card-btn-row"><button class="btn btn-quote" onclick="shareWhatsAppQuote('${d.partNum}', '${safeName}', '-', ${d.stock}, '${d.dealer}', '${d.locCode}')">📲 Share Info</button></div>
-            </div>`;
-        }).join('');
+        lastDealerResults = data || [];
+        if (!lastDealerResults.length) { box.innerHTML = `<div class="empty">Part <b>${raw.toUpperCase()}</b> not available in Shruti or Shakti ❌</div>`; return; }
+        box.innerHTML = lastDealerResults.map((d, idx) => `
+          <div class="card">
+            <div class="card-accent" style="background:${d.dealer === 'Shruti' ? '#7c3aed' : '#0284c7'};"></div>
+            <div class="card-header"><div class="part-num">${d.partNum}</div><div class="bin-badge" style="background:${d.dealer === 'Shruti' ? '#f3e8ff' : '#e0f2fe'};color:${d.dealer === 'Shruti' ? '#6b21a8' : '#0369a1'};">${d.dealer}</div></div>
+            <div class="part-desc">${d.partName} · Root: <b>${d.rootNum || '-'}</b></div>
+            <div style="font-size:12px;color:#334155;margin-bottom:8px;">📍 <b>${d.locCode}</b> · ${d.locDesc}</div>
+            <div class="metrics" style="grid-template-columns:1fr 1fr 1fr;">
+              <div><div class="metric-label">Stock</div><div class="metric-val green">${d.stock}</div></div>
+              <div><div class="metric-label">Dealer</div><div class="metric-val">${d.dealer}</div></div>
+              <div><div class="metric-label">Branch</div><div class="metric-val">${d.locCode}</div></div>
+            </div>
+            <div class="card-btn-row"><button class="btn btn-quote" onclick="shareCoDealerWhatsApp(${idx})">📲 Share Co-Dealer Stock</button></div>
+          </div>`).join('');
       } catch (e) { box.innerHTML = '<div class="empty">Error checking co-dealer stock ❌</div>'; }
     }
 
@@ -593,10 +607,10 @@
               <div class="tracking-box">
                 <div style="font-weight:800; margin-bottom:4px;">🚚 Live Dispatch & Tracking</div>
                 <div>FIN No: <b>${t.finNo || '-'}</b> · GR No: <b>${t.grNo || '-'}</b></div>
-                <div>Transporter: <b>${t.transporter || '-'}</b> | Truck: <b>${t.truckNo || '-'}</b></div>
+                <div>Courier: <b style="color:#1d4ed8;">${t.transporter || '-'}</b> | Truck: <b>${t.truckNo || '-'}</b></div>
                 ${t.currLoc && t.currLoc !== 'NA' ? `<div>Location: <b>${t.currLoc}</b> (${t.currState || ''})</div>` : ''}
                 ${t.eta && t.eta !== 'NA' ? `<div>ETA: <b>${t.eta}</b></div>` : ''}
-                ${hasGr ? `<button class="btn btn-track" onclick="trackShipment('${t.grNo}', '${t.transporter}')">📍 Track Shipment</button>` : ''}
+                ${hasGr ? `<button class="btn btn-track" style="margin-top:6px;" onclick="trackShipment('${t.grNo}', '${t.transporter}')">📍 Track Shipment</button>` : ''}
               </div>`;
           }
           return `
@@ -647,12 +661,15 @@
               </div>
               <div class="bin-badge" style="font-size:12.5px;font-weight:800;">₹${d.value || 0}</div>
             </div>
-            <div style="font-size:12.5px;color:#475569;padding-bottom:6px;border-bottom:1px solid #f1f5f9;margin-bottom:6px;">🚚 <b style="color:#0f172a;">${d.transporter || '-'}</b> · Truck: <b style="color:#0f172a;">${d.truckNo || '-'}</b></div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0;">
+              <span style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;padding:4px 9px;border-radius:8px;font-size:12px;font-weight:800;">🚚 ${d.transporter || '-'}</span>
+              <span style="background:#fef3c7;color:#b45309;border:1px solid #fde68a;padding:4px 9px;border-radius:8px;font-size:12px;font-weight:800;">📍 From: ${d.location || '-'}</span>
+            </div>
             <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px;gap:6px;flex-wrap:wrap;">
               <div><span style="color:#64748b;">GR:</span> <b style="color:#0f172a;">${d.grNo || '-'}</b></div>
-              <div><span style="color:#64748b;">From:</span> <b style="color:#0f172a;">${d.location || '-'}</b></div>
+              <div><span style="color:#64748b;">Truck:</span> <b style="color:#0f172a;">${d.truckNo || '-'}</b></div>
             </div>
-            ${(d.currLoc && d.currLoc !== 'NA') ? `<div style="font-size:12px;color:#0369a1;margin-bottom:5px;">📍 Current Loc: <b>${d.currLoc}</b> (${d.currState || ''})</div>` : ''}
+            ${(d.currLoc && d.currLoc !== 'NA') ? `<div style="font-size:12px;color:#0369a1;margin-bottom:5px;">🧭 Current Loc: <b>${d.currLoc}</b> (${d.currState || ''})</div>` : ''}
             ${(d.eta && d.eta !== 'NA') ? `<div style="font-size:12.5px;font-weight:700;color:var(--green);margin-bottom:6px;">📅 ETA: ${d.eta}</div>` : ''}
             <div class="card-btn-row">
               ${hasGr ? `<button class="btn btn-track" style="margin-top:0;flex:1;" onclick="trackShipment('${d.grNo}', '${d.transporter}')">📍 Track</button>` : ''}
@@ -686,30 +703,33 @@
       if (!data) { box.innerHTML = '<div class="empty">Error loading reorder list.</div>'; return; }
       const list = data.lowStock || [];
       sum.style.display = 'block'; act.style.display = 'flex';
-      sum.innerHTML = `⚠️ <b>Low/0-Stock Fast Moving:</b> <span style="color:var(--red);font-weight:800;">${data.totalLowCount}</span> parts need reorder`;
+      sum.innerHTML = `⚠️ <b>6M Consumption Reorder:</b> <span style="color:var(--red);font-weight:800;">${data.totalLowCount}</span> fast-moving parts need order`;
       if (!list.length) { box.innerHTML = '<div class="empty">All fast-moving parts are in stock! 🎉</div>'; return; }
       box.innerHTML = list.map(item => `
         <div class="card">
           <div class="card-accent" style="background:var(--red);"></div>
           <div class="card-header"><div class="part-num">${item.partNum}</div><div class="bin-badge">📍 ${item.bin || 'NOBIN'}</div></div>
-          <div class="part-desc">${item.partName}</div>
-          <div style="display:flex;justify-content:space-between;font-size:12.5px;">
-            <div>Stock: <b class="red">${item.stock}</b> · OnOrd: <b>${item.onOrder}</b></div>
-            <div>Sug. Ord: <b style="color:var(--primary);">${item.suggestedOrder}</b> · MRP: <b>₹${item.mrp}</b></div>
+          <div class="part-desc">${item.partName} · MRP: <b>₹${item.mrp}</b></div>
+          <div class="metrics">
+            <div><div class="metric-label">6M Sale</div><div class="metric-val">${item.consumed}</div></div>
+            <div><div class="metric-label">Avg/Mo</div><div class="metric-val">${item.avgMonthly}</div></div>
+            <div><div class="metric-label">Stk+Ord</div><div class="metric-val red">${item.stock + item.onOrder}</div></div>
+            <div><div class="metric-label">Order Qty</div><div class="metric-val green" style="background:#dcfce7;border-radius:6px;">+${item.suggestedOrder}</div></div>
           </div>
         </div>`).join('');
     }
 
     function downloadLowStockCSV() {
       if (!analyticsCache || !analyticsCache.lowStock) return;
-      const rows = [['Part Number', 'Part Name', 'Bin', 'MRP', 'Stock', 'On Order', 'Suggested Order']];
-      analyticsCache.lowStock.forEach(i => rows.push([i.partNum, `"${String(i.partName).replace(/"/g, '""')}"`, i.bin, i.mrp, i.stock, i.onOrder, i.suggestedOrder]));
+      const rows = [['Part Number', 'Part Name', 'Bin', 'MRP', '6M Total', 'Monthly Avg', 'Stock', 'On Order', 'Order Qty']];
+      analyticsCache.lowStock.forEach(i => rows.push([i.partNum, `"${String(i.partName).replace(/"/g, '""')}"`, i.bin, i.mrp, i.consumed, i.avgMonthly, i.stock, i.onOrder, i.suggestedOrder]));
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([rows.map(r => r.join(',')).join('\n')], { type: 'text/csv' }));
       a.download = 'DDLB702_Reorder_List.csv'; a.click();
     }
 
     let activeDeadType = 'parts';
+    let deadSortByBin = false;
     async function loadDeadStock() {
       const box = document.getElementById('deadResults');
       if (!analyticsCache) box.innerHTML = '<div class="empty">Loading dead stock report... ⏳</div>';
@@ -724,28 +744,42 @@
       if (analyticsCache) renderDeadStock();
     }
 
+    function toggleDeadSort() {
+      deadSortByBin = !deadSortByBin;
+      document.getElementById('btnDeadSort').innerText = deadSortByBin ? '📍 Sort: Bin Order' : '💰 Sort: High Value';
+      if (analyticsCache) renderDeadStock();
+    }
+
     function renderDeadStock() {
-      const list = activeDeadType === 'parts' ? (analyticsCache.deadParts || []) : (analyticsCache.deadAcc || []);
+      let list = [...(activeDeadType === 'parts' ? (analyticsCache.deadParts || []) : (analyticsCache.deadAcc || []))];
+      if (deadSortByBin) list.sort((a, b) => String(a.bin || 'ZZZ').localeCompare(String(b.bin || 'ZZZ')));
       const totalCnt = activeDeadType === 'parts' ? analyticsCache.totalDeadPartsCount : analyticsCache.totalDeadAccCount;
       const totalVal = activeDeadType === 'parts' ? analyticsCache.totalDeadPartsValue : analyticsCache.totalDeadAccValue;
       const sum = document.getElementById('deadSummary');
       sum.style.display = 'block';
-      sum.innerHTML = `💤 <b>${activeDeadType === 'parts' ? 'Dead Spare Parts' : 'Dead Accessories'}:</b> ${totalCnt} items · Value: <b class="red">₹${(totalVal || 0).toLocaleString('en-IN')}</b>`;
+            sum.innerHTML = `💤 <b>${activeDeadType === 'parts' ? 'Dead Spare Parts' : 'Dead Accessories'}:</b> ${totalCnt} items · Locked Value: <b class="red">₹${(totalVal || 0).toLocaleString('en-IN')}</b>`;
       const box = document.getElementById('deadResults');
       if (!list.length) { box.innerHTML = '<div class="empty">No dead stock items found.</div>'; return; }
-      box.innerHTML = list.map(item => `
+      box.innerHTML = list.map((item, idx) => `
         <div class="card">
           <div class="card-accent" style="background:var(--amber);"></div>
-          <div class="card-header"><div class="part-num">${item.partNum}</div><div class="bin-badge">📍 ${item.bin}</div></div>
+          <div class="card-header">
+            <div class="part-num"><span style="color:#64748b;font-size:12px;">#${idx + 1}</span> ${item.partNum}</div>
+            <div class="bin-badge" style="background:#fef3c7;color:#b45309;">📍 ${item.bin}</div>
+          </div>
           <div class="part-desc">${item.partName}</div>
-          <div style="display:flex;justify-content:space-between;font-size:12.5px;">
-            <div>Stock: <b>${item.stock}</b> · MRP: <b>₹${item.mrp}</b></div>
-            <div>Value: <b class="red">₹${(item.deadValue || 0).toLocaleString('en-IN')}</b></div>
+          <div class="metrics" style="grid-template-columns:1fr 1fr 1fr;">
+            <div><div class="metric-label">Dead Qty</div><div class="metric-val">${item.stock}</div></div>
+            <div><div class="metric-label">MRP</div><div class="metric-val">₹${item.mrp}</div></div>
+            <div><div class="metric-label">Total Loss</div><div class="metric-val red">₹${(item.deadValue || 0).toLocaleString('en-IN')}</div></div>
+          </div>
+          <div class="card-btn-row">
+            <button class="btn btn-quote" onclick="shareWhatsAppQuote('${item.partNum}', '${String(item.partName || '').replace(/'/g, '')}', ${item.mrp}, ${item.stock}, 'DDLB702', '${item.bin}')">📲 Offer / Share</button>
           </div>
         </div>`).join('');
     }
 
-        function downloadDeadStockCSV() {
+    function downloadDeadStockCSV() {
       if (!analyticsCache) return;
       const list = activeDeadType === 'parts' ? analyticsCache.deadParts : analyticsCache.deadAcc;
       const rows = [['Part Number', 'Part Name', 'Bin', 'Stock', 'MRP', 'Total Value']];
@@ -783,4 +817,3 @@
   </script>
 </body>
 </html>
-
