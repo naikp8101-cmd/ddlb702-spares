@@ -144,7 +144,8 @@
       </div>
       <div id="stockResults"><div class="empty">🔍 Search Part Number, Name, or tap a Rack Bin above</div></div>
     </div>
-        <div id="tab-dealer" class="tab-view" style="display:none;">
+
+    <div id="tab-dealer" class="tab-view" style="display:none;">
       <div class="search-box">
         <input type="text" id="dealerQuery" class="search-input" placeholder="Search Shruti & Shakti stock..." onkeyup="if(event.key==='Enter') searchDealerStock()" />
         <button class="btn btn-primary" onclick="searchDealerStock()">Check</button>
@@ -157,7 +158,7 @@
         <input type="text" id="orderQuery" class="search-input" placeholder="Track Part in B/O, ALLO, Picking, Inv..." onkeyup="if(event.key==='Enter') searchPartOrderStatus()" />
         <button class="btn btn-primary" onclick="searchPartOrderStatus()">Track</button>
       </div>
-      <div id="orderResults"><div class="empty">📦 Enter Part Number to track live order pipeline</div></div>
+      <div id="orderResults"><div class="empty">Loading latest month order part errors... ⏳</div></div>
     </div>
 
     <div id="tab-dispatch" class="tab-view" style="display:none;">
@@ -181,7 +182,7 @@
       <div class="action-bar" id="deadActions" style="display:none;">
         <button class="btn btn-sm btn-filter active" id="btnDeadParts" onclick="switchDeadType('parts')">🔧 Spare Parts</button>
         <button class="btn btn-sm btn-filter" id="btnDeadAcc" onclick="switchDeadType('acc')">✨ Accessories</button>
-        <button class="btn btn-sm btn-filter" id="btnDeadSort" onclick="toggleDeadSort()">📍 Sort: High Value</button>
+        <button class="btn btn-sm btn-filter" id="btnDeadSort" onclick="toggleDeadSort()">💰 Sort: High Value</button>
         <button class="btn btn-sm btn-outline admin-only" onclick="downloadDeadStockCSV()">📥 CSV</button>
       </div>
       <div id="deadResults"><div class="empty">Loading dead stock report... ⏳</div></div>
@@ -216,8 +217,7 @@
   <script>
     const API_URL = 'https://script.google.com/macros/s/AKfycbwHSSG7jePZ0HbBpL-5fnEsyCEpUpmWD771c6x3E3SNBXtGwakJYRJ75iYOmLrApgypZg/exec';
     const ADMIN_PIN = '7020';
-
-    if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js').catch(() => {}); }
+        if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js').catch(() => {}); }
 
     let deferredPrompt = null;
     window.addEventListener('beforeinstallprompt', (e) => {
@@ -320,7 +320,7 @@
       const tr = String(transporter || '').trim().toUpperCase();
       if (!cleanGr || cleanGr === 'NA' || cleanGr === '-') { alert('GR / Docket Number not available'); return; }
       if (navigator.clipboard) navigator.clipboard.writeText(cleanGr).catch(() => {});
-      if (tr.includes('SCOU') || tr.includes('XPS') || tr.includes('TCI')) {
+      if (tr === 'SCOU XPS' || tr === 'SCOU-XPS' || tr.includes('TCI')) {
         showToast(`GR ${cleanGr} copied! Opening TCI Express...`);
         window.open(`https://www.tciexpress.in/trackingdocket.aspx?docketno=${encodeURIComponent(cleanGr)}`, '_blank');
       } else {
@@ -399,6 +399,7 @@
       document.getElementById('tab-' + tab).style.display = 'block';
       document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
       if (el) el.classList.add('active');
+      if (tab === 'orders') loadLatestOrderErrors();
       if (tab === 'dispatch') loadDispatch();
       if (tab === 'low') loadLowStock();
       if (tab === 'dead') loadDeadStock();
@@ -512,35 +513,66 @@
         }
         box.innerHTML = `<div class="empty">🔍 Found <b>${uniqueParts.length}</b> parts! Checking Bin Locations & Stock... ⏳</div>`;
         const res = await fetch(`${API_URL}?action=batch_parts&q=${encodeURIComponent(uniqueParts.join(','))}`);
-        const data = await res.json();
-        data.sort((a, b) => {
-          const binA = (a.matches[0] && a.matches[0].bin) ? a.matches[0].bin : 'ZZZ';
-          const binB = (b.matches[0] && b.matches[0].bin) ? b.matches[0].bin : 'ZZZ';
-          return binA.localeCompare(binB);
-        });
-        lastPickList = data;
-        const foundCount = data.filter(x => x.found && x.matches.some(m => m.stock > 0)).length;
-        box.innerHTML = `
-          <div class="summary-banner" style="display:flex;justify-content:space-between;align-items:center;">
-            <div>📋 <b>Estimate Pick List:</b> ${uniqueParts.length} Parts (${foundCount} In Stock)</div>
-            <button class="btn btn-quote" style="padding:6px 10px;font-size:12px;flex:0 0 auto;" onclick="sharePickListWhatsApp()">📲 Share List</button>
-          </div>` + data.map(row => {
-          if (!row.found) {
-            return `<div class="card"><div class="card-accent" style="background:#94a3b8;"></div><div class="card-header"><div class="part-num">${row.scannedPart}</div><div class="bin-badge" style="background:#f1f5f9;color:#475569;">NOT IN SHEET</div></div></div>`;
-          }
-          return row.matches.map(item => `
-            <div class="card">
-              <div class="card-accent" style="background:${item.stock > 0 ? 'var(--green)' : 'var(--red)'};"></div>
-              <div class="card-header"><div class="part-num">${item.partNum}</div><div class="bin-badge" style="font-size:13px;font-weight:800;">📍 ${item.bin || 'NOBIN'}</div></div>
-              <div class="part-desc">${item.partName} ${item.partNum !== row.scannedPart ? `<span style="color:var(--primary);font-weight:700;">(Matched for ${row.scannedPart})</span>` : ''}</div>
-              <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-top:6px;">
-                <div>Stock: <b style="color:${item.stock > 0 ? 'var(--green)' : 'var(--red)'};">${item.stock}</b></div>
-                <div>MRP: <b>₹${item.mrp}</b></div>
-              </div>
-            </div>`).join('');
-        }).join('');
+        lastPickList = await res.json();
+        renderPickListCards();
       } catch (e) { box.innerHTML = '<div class="empty">Error scanning estimate sheet.</div>'; }
       event.target.value = '';
+    }
+
+    function renderPickListCards() {
+      const box = document.getElementById('stockResults');
+      lastPickList.sort((a, b) => {
+        const binA = (a.matches[0] && a.matches[0].bin) ? a.matches[0].bin : 'ZZZ';
+        const binB = (b.matches[0] && b.matches[0].bin) ? b.matches[0].bin : 'ZZZ';
+        return binA.localeCompare(binB);
+      });
+      const foundCount = lastPickList.filter(x => x.found && x.matches.some(m => m.stock > 0)).length;
+      box.innerHTML = `
+        <div class="summary-banner" style="display:flex;justify-content:space-between;align-items:center;">
+          <div>📋 <b>Estimate Pick List:</b> ${lastPickList.length} Parts (${foundCount} In Stock)</div>
+          <button class="btn btn-quote" style="padding:6px 10px;font-size:12px;flex:0 0 auto;" onclick="sharePickListWhatsApp()">📲 Share List</button>
+        </div>` + lastPickList.map((row, idx) => {
+        if (!row.found) {
+          return `
+            <div class="card">
+              <div class="card-accent" style="background:#94a3b8;"></div>
+              <div class="card-header">
+                <div class="part-num">${row.scannedPart}</div>
+                <div style="display:flex;gap:6px;align-items:center;">
+                  <button class="btn btn-sm btn-outline" style="padding:4px 8px;font-size:11px;border-color:var(--primary);color:var(--primary);" onclick="fixScannedPart(${idx})">✏️ Fix</button>
+                  <div class="bin-badge" style="background:#f1f5f9;color:#475569;">NOT IN SHEET</div>
+                </div>
+              </div>
+            </div>`;
+        }
+        return row.matches.map(item => `
+          <div class="card">
+            <div class="card-accent" style="background:${item.stock > 0 ? 'var(--green)' : 'var(--red)'};"></div>
+            <div class="card-header"><div class="part-num">${item.partNum}</div><div class="bin-badge" style="font-size:13px;font-weight:800;">📍 ${item.bin || 'NOBIN'}</div></div>
+            <div class="part-desc">${item.partName} ${item.partNum !== row.scannedPart ? `<span style="color:var(--primary);font-weight:700;">(Matched for ${row.scannedPart})</span>` : ''}</div>
+            <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-top:6px;">
+              <div>Stock: <b style="color:${item.stock > 0 ? 'var(--green)' : 'var(--red)'};">${item.stock}</b></div>
+              <div>MRP: <b>₹${item.mrp}</b></div>
+            </div>
+          </div>`).join('');
+      }).join('');
+    }
+
+    async function fixScannedPart(idx) {
+      const curr = lastPickList[idx];
+      if (!curr) return;
+      const corrected = prompt('Correct the OCR Part Number:', curr.scannedPart);
+      if (!corrected || !corrected.trim()) return;
+      const clean = corrected.trim().toUpperCase();
+      showToast('Checking ' + clean + '... ⏳');
+      try {
+        const res = await fetch(`${API_URL}?action=batch_parts&q=${encodeURIComponent(clean)}`);
+        const arr = await res.json();
+        if (arr && arr[0]) {
+          lastPickList[idx] = arr[0];
+          renderPickListCards();
+        }
+      } catch (e) { showToast('Error checking part'); }
     }
 
     function sharePickListWhatsApp() {
@@ -580,10 +612,34 @@
       } catch (e) { box.innerHTML = '<div class="empty">Error checking co-dealer stock ❌</div>'; }
     }
 
-    let lastOrderResults = [];
+    async function loadLatestOrderErrors() {
+      const q = document.getElementById('orderQuery').value.trim();
+      if (q) return;
+      const box = document.getElementById('orderResults');
+      box.innerHTML = '<div class="empty">Loading latest month order part errors... ⏳</div>';
+      try {
+        const res = await fetch(`${API_URL}?action=order_errors`);
+        const list = await res.json();
+        if (!list || !list.length) {
+          box.innerHTML = '<div class="empty">✅ No order part errors in current month! Enter Part No above to track pipeline.</div>';
+          return;
+        }
+        box.innerHTML = `<div class="summary-banner" style="background:#fef2f2;border-color:#fecaca;color:#991b1b;">⚠️ <b>Latest Month Order Part Errors (${list.length}):</b></div>` + list.map(err => {
+          const det = Object.entries(err.details || {}).map(([k, v]) => `<div><span style="color:#64748b">${k}:</span> <b>${v}</b></div>`).join('');
+          return `
+            <div class="card">
+              <div class="card-accent" style="background:#dc2626;"></div>
+              <div class="card-header"><div class="part-num">${err.partNum}</div><span class="stage-badge stage-bo">⚠️ ORDER ERROR</span></div>
+              <div class="part-desc">${err.partName || ''}</div>
+              <div class="details-grid">${det}</div>
+            </div>`;
+        }).join('');
+      } catch (e) { box.innerHTML = '<div class="empty">📦 Enter Part Number to track live order pipeline</div>'; }
+    }
+        let lastOrderResults = [];
     async function searchPartOrderStatus() {
       const raw = document.getElementById('orderQuery').value.trim();
-      if (!raw) return;
+      if (!raw) { loadLatestOrderErrors(); return; }
       const q = extractPartNumber(raw);
       document.getElementById('orderQuery').value = q;
       const box = document.getElementById('orderResults');
@@ -592,10 +648,10 @@
         const res = await fetch(`${API_URL}?action=track_part&q=${encodeURIComponent(q)}`);
         const list = await res.json();
         lastOrderResults = list || [];
-        if (!lastOrderResults.length) { box.innerHTML = `<div class="empty">Part <b>${q}</b> not found in B/O, ALLO, Under Picking, Under Invoice, or Invoice.</div>`; return; }
+        if (!lastOrderResults.length) { box.innerHTML = `<div class="empty">Part <b>${q}</b> not found in Errors, B/O, ALLO, Picking, or Invoice.</div>`; return; }
         box.innerHTML = lastOrderResults.map((item, idx) => {
-          const badgeClass = item.stage === 'B/O' ? 'stage-bo' : item.stage === 'ALLO' ? 'stage-allo' : item.stage === 'UNDER PICKING' ? 'stage-up' : 'stage-inv';
-          const borderCol = item.stage === 'B/O' ? '#dc2626' : item.stage === 'ALLO' ? '#d97706' : item.stage === 'UNDER PICKING' ? '#2563eb' : item.stage === 'UNDER INVOICE' ? '#7c3aed' : '#059669';
+          const badgeClass = (item.stage === 'B/O' || item.stage === 'ORDER ERROR') ? 'stage-bo' : item.stage === 'ALLO' ? 'stage-allo' : item.stage === 'UNDER PICKING' ? 'stage-up' : 'stage-inv';
+          const borderCol = (item.stage === 'B/O' || item.stage === 'ORDER ERROR') ? '#dc2626' : item.stage === 'ALLO' ? '#d97706' : item.stage === 'UNDER PICKING' ? '#2563eb' : item.stage === 'UNDER INVOICE' ? '#7c3aed' : '#059669';
           const detailsHTML = Object.entries(item.details || {}).filter(([k, v]) => k !== 'Part No' && k !== 'Part Name' && v !== '' && v !== null).map(([k, v]) => `<div><span style="color:#64748b">${k}:</span> <b>${v}</b></div>`).join('');
           const orderDateVal = item.details && (item.details['Order Date'] || item.details['ORDER DATE'] || item.details['Date']);
           const agingHTML = item.stage === 'B/O' ? getAgingBadge(orderDateVal) : '';
@@ -656,7 +712,7 @@
             <div class="card-accent"></div>
             <div class="card-header" style="margin-bottom:6px;">
               <div>
-                <div class="part-num" style="color:var(--primary);text-decoration:underline;cursor:pointer;font-size:15.5px;" onclick="openFinParts('${d.finNo}')">FIN: ${d.finNo} ↗</div>
+                <div class="part-num" style="color:var(--primary);cursor:pointer;font-size:15.5px;" onclick="openFinParts('${d.finNo}')">🧾 FIN: ${d.finNo}</div>
                 ${d.finDate ? `<div style="font-size:11.5px;color:#475569;font-weight:600;margin-top:2px;">📅 Inv Date: <b>${d.finDate}</b></div>` : ''}
               </div>
               <div class="bin-badge" style="font-size:12.5px;font-weight:800;">₹${d.value || 0}</div>
@@ -683,13 +739,13 @@
       if (!finNo || finNo === '-') return;
       const modalBody = document.querySelector('#updateModal .modal-content');
       const origHtml = modalBody.innerHTML;
-      modalBody.innerHTML = `<h3>📦 FIN: ${finNo}</h3><div class="empty">Loading parts in this invoice... ⏳</div>`;
+      modalBody.innerHTML = `<h3>🧾 FIN: ${finNo}</h3><div class="empty">Loading parts in this invoice... ⏳</div>`;
       document.getElementById('updateModal').style.display = 'flex';
       try {
         const res = await fetch(`${API_URL}?action=fin_parts&q=${encodeURIComponent(finNo)}`);
         const items = await res.json();
         const listHtml = items.length ? items.map((it, idx) => `<div style="padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px;"><b>${idx + 1}. ${it.partNum}</b> — Qty: <b style="color:#2563eb;">${it.qty}</b><br/><span style="color:#475569;font-size:12px;">${it.partName}</span></div>`).join('') : '<div class="empty">No parts found in INVOICE tab for this FIN.</div>';
-        modalBody.innerHTML = `<h3>📦 FIN: ${finNo} (${items.length} Items)</h3><div style="max-height:55vh;overflow-y:auto;">${listHtml}</div><button class="btn btn-primary" style="margin-top:12px;width:100%;" id="closeFinBtn">Close</button>`;
+        modalBody.innerHTML = `<h3>🧾 FIN: ${finNo} (${items.length} Items)</h3><div style="max-height:55vh;overflow-y:auto;">${listHtml}</div><button class="btn btn-primary" style="margin-top:12px;width:100%;" id="closeFinBtn">Close</button>`;
         document.getElementById('closeFinBtn').onclick = () => { modalBody.innerHTML = origHtml; closeModal(); };
       } catch (e) { modalBody.innerHTML = origHtml; closeModal(); }
     }
@@ -710,11 +766,12 @@
           <div class="card-accent" style="background:var(--red);"></div>
           <div class="card-header"><div class="part-num">${item.partNum}</div><div class="bin-badge">📍 ${item.bin || 'NOBIN'}</div></div>
           <div class="part-desc">${item.partName} · MRP: <b>₹${item.mrp}</b></div>
-          <div class="metrics">
+          <div class="metrics" style="grid-template-columns:repeat(5, 1fr);">
             <div><div class="metric-label">6M Sale</div><div class="metric-val">${item.consumed}</div></div>
             <div><div class="metric-label">Avg/Mo</div><div class="metric-val">${item.avgMonthly}</div></div>
-            <div><div class="metric-label">Stk+Ord</div><div class="metric-val red">${item.stock + item.onOrder}</div></div>
-            <div><div class="metric-label">Order Qty</div><div class="metric-val green" style="background:#dcfce7;border-radius:6px;">+${item.suggestedOrder}</div></div>
+            <div><div class="metric-label">Stock</div><div class="metric-val ${item.stock > 0 ? 'green' : 'red'}">${item.stock}</div></div>
+            <div><div class="metric-label">On Ord</div><div class="metric-val amber">${item.onOrder}</div></div>
+            <div><div class="metric-label">Order</div><div class="metric-val green" style="background:#dcfce7;border-radius:6px;">+${item.suggestedOrder}</div></div>
           </div>
         </div>`).join('');
     }
@@ -757,7 +814,7 @@
       const totalVal = activeDeadType === 'parts' ? analyticsCache.totalDeadPartsValue : analyticsCache.totalDeadAccValue;
       const sum = document.getElementById('deadSummary');
       sum.style.display = 'block';
-            sum.innerHTML = `💤 <b>${activeDeadType === 'parts' ? 'Dead Spare Parts' : 'Dead Accessories'}:</b> ${totalCnt} items · Locked Value: <b class="red">₹${(totalVal || 0).toLocaleString('en-IN')}</b>`;
+      sum.innerHTML = `💤 <b>${activeDeadType === 'parts' ? 'Dead Spare Parts' : 'Dead Accessories'}:</b> ${totalCnt} items · Locked Value: <b class="red">₹${(totalVal || 0).toLocaleString('en-IN')}</b>`;
       const box = document.getElementById('deadResults');
       if (!list.length) { box.innerHTML = '<div class="empty">No dead stock items found.</div>'; return; }
       box.innerHTML = list.map((item, idx) => `
