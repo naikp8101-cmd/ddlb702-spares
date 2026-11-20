@@ -182,6 +182,7 @@
       <div class="action-bar" id="deadActions" style="display:none;">
         <button class="btn btn-sm btn-filter active" id="btnDeadParts" onclick="switchDeadType('parts')">🔧 Spare Parts</button>
         <button class="btn btn-sm btn-filter" id="btnDeadAcc" onclick="switchDeadType('acc')">✨ Accessories</button>
+                <button class="btn btn-sm btn-filter" id="btnDeadAgp" onclick="switchDeadType('agp')">🛢️ AGP Parts</button>
         <button class="btn btn-sm btn-filter" id="btnDeadSort" onclick="toggleDeadSort()">💰 Sort: High Value</button>
         <button class="btn btn-sm btn-outline admin-only" onclick="downloadDeadStockCSV()">📥 CSV</button>
       </div>
@@ -364,24 +365,42 @@
       return rawText.trim().split(/[\s;,|]+/)[0].trim().toUpperCase();
     }
 
-    async function scanPartImage(event) {
+        async function scanPartImage(event) {
       const file = event.target.files[0];
       if (!file) return;
       const box = document.getElementById('stockResults');
-      box.innerHTML = '<div class="empty">📷 Reading Part Number from image... ⏳</div>';
+      box.innerHTML = '<div class="empty">📷 Reading Part Number from image... Please wait 3-5 sec ⏳</div>';
       try {
+        const img = await createImageBitmap(file);
+        const maxW = 1200;
+        const scale = img.width > maxW ? maxW / img.width : 1;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        ctx.filter = 'grayscale(100%) contrast(160%)';
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
         const worker = await Tesseract.createWorker('eng');
-        const ret = await worker.recognize(file);
+        const ret = await worker.recognize(canvas);
         await worker.terminate();
-        const text = (ret.data.text || '').toUpperCase();
-        const match = text.match(/\b([0-9A-Z]{5}[\-\s]?[0-9A-Z]{5}(?:[\-\s]?[0-9A-Z]{3})?)\b/);
-        if (match) {
-          document.getElementById('stockQuery').value = match[1].replace(/\s+/g, '');
+
+        const text = (ret.data.text || '').toUpperCase().replace(/[^A-Z0-9-\s\n]/g, ' ');
+        const tokens = text.split(/[\s\n,;:|]+/).map(t => t.replace(/-/g, '').trim());
+        const validPart = tokens.find(t => t.length >= 9 && t.length <= 15 && /[0-9]/.test(t));
+
+        if (validPart) {
+          document.getElementById('stockQuery').value = validPart;
           searchStock();
-        } else { box.innerHTML = '<div class="empty">Could not read part number clearly. Please enter manually.</div>'; }
-      } catch (e) { box.innerHTML = '<div class="empty">Camera OCR error. Try again.</div>'; }
+        } else {
+          box.innerHTML = '<div class="empty">❌ Could not read part number clearly. Try closer photo or enter manually.</div>';
+        }
+      } catch (e) {
+        box.innerHTML = '<div class="empty">⚠️ Camera OCR error, try again.</div>';
+      }
       event.target.value = '';
     }
+
 
     function getAgingBadge(dateStr) {
       if (!dateStr) return '';
@@ -461,11 +480,15 @@
     function renderStockCards(data) {
       const box = document.getElementById('stockResults');
       if (!data || !data.length) { box.innerHTML = '<div class="empty">No matching parts found ❌</div>'; return; }
-      box.innerHTML = data.map(item => {
+            const sorted = [...data].sort((a, b) => (Number(b.stock) > 0 ? 1 : 0) - (Number(a.stock) > 0 ? 1 : 0));
+      box.innerHTML = sorted.map(item => {
+        const hasStock = Number(item.stock) > 0;
+
         const onOrder = (Number(item.bo) || 0) + (Number(item.allo) || 0) + (Number(item.up) || 0) + (Number(item.inv) || 0);
         const safeName = String(item.partName || '').replace(/'/g, '');
         return `
-          <div class="card">
+                  <div class="card" style="${hasStock ? 'border:2px solid #16a34a;background:#f0fdf4;box-shadow:0 4px 12px rgba(22,163,74,0.16);' : ''}">
+
             <div class="card-accent" style="background:${item.stock > 0 ? 'var(--green)' : 'var(--red)'};"></div>
             <div class="card-header"><div class="part-num">${item.partNum}</div><div class="bin-badge">📍 ${item.bin || 'NOBIN'}</div></div>
             <div class="part-desc">${item.partName} · Root: <b>${item.rootNum || '-'}</b></div>
