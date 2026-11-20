@@ -397,7 +397,7 @@
       }
       document.getElementById('liveQrModal').style.display = 'none';
     }
-        // =========================================================================
+              // =========================================================================
     // TAB NAVIGATION & ANALYTICS CACHE
     // =========================================================================
     let analyticsCache = null;
@@ -1043,4 +1043,117 @@
           groups[key].phone = String(item.phone).trim();
         }
         groups[key].items.push({
-          partNo: item.partNo ||
+          partNo:  item.partNum || '',
+          partName: item.partName || '',
+          jc: item.jc || item.jcNo || '-',
+          stage: item.stage || 'Pending / Not Ordered',
+          inStock: Boolean(item.inStock || String(item.stage).includes('IN STOCK'))
+        });
+      });
+
+      box.innerHTML = Object.values(groups).map(g => {
+        const readyCount = g.items.filter(x => x.inStock || x.stage.includes('Invoiced')).length;
+        const rowsHtml = g.items.map(p => {
+          const isReady = p.inStock || p.stage.includes('Invoiced');
+          const badgeColor = isReady ? '#15803d' : '#b45309';
+          const badgeBg = isReady ? '#dcfce7' : '#fef3c7';
+          return `
+            <div style="padding:8px 0;border-top:1px solid #f1f5f9;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+                <div style="font-weight:800;font-size:13.5px;color:#0f172a;">${p.partNo} <span style="font-weight:600;color:#64748b;font-size:11.5px;">(JC: ${p.jc})</span></div>
+                <span style="background:${badgeBg};color:${badgeColor};font-weight:800;font-size:10.5px;padding:3px 7px;border-radius:6px;white-space:nowrap;">${p.stage}</span>
+              </div>
+              ${p.partName ? `<div style="font-size:11.5px;color:#475569;margin-top:2px;">${p.partName}</div>` : ''}
+            </div>`;
+        }).join('');
+
+        return `
+          <div class="card" style="${readyCount > 0 ? 'border:2px solid #16a34a;background:#f0fdf4;' : ''}">
+            <div class="card-accent" style="background:${readyCount > 0 ? 'var(--green)' : '#f59e0b'};"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
+              <div>
+                <div style="font-weight:800;font-size:15px;color:#0f172a;">👨‍🔧 ${g.name}</div>
+                <div style="font-size:11.5px;color:#64748b;">📱 ${g.phone || 'No Direct No'} · <b>${g.items.length}</b> Part(s)</div>
+              </div>
+              <div style="display:flex;gap:6px;">
+                <button class="btn btn-quote" style="padding:6px 10px;font-size:11.5px;flex:0 0 auto;" onclick="sendAdvisorDirectWA('${encodeURIComponent(g.name)}')">📲 Direct WA</button>
+                <button class="btn btn-track" style="padding:6px 10px;font-size:11.5px;" onclick="shareAdvisorGroupWA('${encodeURIComponent(g.name)}')">👥 Group Share</button>
+              </div>
+            </div>
+            ${rowsHtml}
+          </div>`;
+      }).join('');
+    }
+
+    function buildAdvisorMessage(advName) {
+      const key = advName.toUpperCase();
+      const items = (advisorCache || []).filter(x => String(x.advisor || x.advisorName || '').trim().toUpperCase() === key);
+      if (!items.length) return { msg: '', phone: '' };
+
+      let phone = '';
+      const lines = [
+        `*📋 DDLB702 SPARES - ADVISOR UPDATE*`,
+        `👨‍🔧 Advisor: *${advName}*`,
+        `━━━━━━━━━━━━━━━━━━━━`
+      ];
+      items.forEach((it, idx) => {
+        if (it.phone && String(it.phone).replace(/\D/g, '').length >= 10) phone = String(it.phone).trim();
+        const pNo = it.partNo || it.partNum || '';
+        const pName = it.partName || '';
+        const jc = it.jc || it.jcNo || '-';
+        const st = it.stage || 'Pending';
+        lines.push(`${idx + 1}. *${pNo}* (JC: ${jc})`);
+        if (pName) lines.push(`   _${pName}_`);
+        lines.push(`   👉 *${st}*\n`);
+      });
+      lines.push(`_DDLB702 Parts Team_`);
+      return { msg: lines.join('\n'), phone };
+    }
+
+    function sendAdvisorDirectWA(encodedName) {
+      const advName = decodeURIComponent(encodedName);
+      const { msg, phone } = buildAdvisorMessage(advName);
+      if (!msg) return;
+      let cleanPhone = phone.replace(/\D/g, '');
+      if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
+      const url = cleanPhone
+        ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`
+        : `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+      window.open(url, '_blank');
+    }
+
+    function shareAdvisorGroupWA(encodedName) {
+      const advName = decodeURIComponent(encodedName);
+      const { msg } = buildAdvisorMessage(advName);
+      if (!msg) return;
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank');
+    }
+
+    async function submitAdvisorOrder() {
+      const advisor = document.getElementById('advName').value.trim();
+      const phone = document.getElementById('advPhone').value.trim();
+      const part = extractPartNumber(document.getElementById('advPart').value.trim());
+      const jc = document.getElementById('advJc').value.trim().toUpperCase();
+
+      if (!advisor || !part) {
+        showToast('Advisor Name & Part Number haaki!');
+        return;
+      }
+      showToast('Saving order... ⏳');
+      try {
+        const url = `${API_URL}?action=add_advisor_order&advisor=${encodeURIComponent(advisor)}&phone=${encodeURIComponent(phone)}&part=${encodeURIComponent(part)}&jc=${encodeURIComponent(jc)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.ok || data.success) {
+          document.getElementById('advPart').value = '';
+          document.getElementById('advJc').value = '';
+          showToast('Saved! Checking live status... ✅');
+          loadAdvisorOrders(true);
+        }
+      } catch (e) {
+        showToast('Error saving order');
+      }
+    }
+  </script>
+</body>
+</html>
