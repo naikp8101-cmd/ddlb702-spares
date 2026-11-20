@@ -1100,30 +1100,34 @@
     }
 
 
-    function buildAdvisorMessage(advName) {
+        function buildAdvisorMessage(advName) {
       const key = advName.toUpperCase();
       const items = (advisorCache || []).filter(x => String(x.advisor || x.advisorName || '').trim().toUpperCase() === key);
       if (!items.length) return { msg: '', phone: '' };
 
       let phone = '';
       const lines = [
-        `*📋 DDLB702 SPARES - ADVISOR UPDATE*`,
-        `👨‍🔧 Advisor: *${advName}*`,
-        `━━━━━━━━━━━━━━━━━━━━`
+        `*DDLB702 Spares - Order Update*`,
+        `Hello *${advName}*, here is your spare parts status:\n`
       ];
+
       items.forEach((it, idx) => {
         if (it.phone && String(it.phone).replace(/\D/g, '').length >= 10) phone = String(it.phone).trim();
         const pNo = it.partNo || it.partNum || '';
-        const pName = it.partName || '';
+        const pName = it.partName ? ` - ${it.partName}` : '';
         const jc = it.jc || it.jcNo || '-';
-        const st = it.stage || 'Pending';
-        lines.push(`${idx + 1}. *${pNo}* (JC: ${jc})`);
-        if (pName) lines.push(`   _${pName}_`);
-        lines.push(`   👉 *${st}*\n`);
+        const st = String(it.stage || 'PENDING').replace(/^[^A-Z0-9]+/i, '');
+        const det = it.details || '';
+
+        lines.push(`${idx + 1}. *${pNo}* (${jc})${pName}`);
+        lines.push(`   Status: *${st}*`);
+        if (det) lines.push(`   Details: ${det}`);
       });
-      lines.push(`_DDLB702 Parts Team_`);
+
+      lines.push(`\n- DDLB702 Parts Team`);
       return { msg: lines.join('\n'), phone };
     }
+
 
     function sendAdvisorDirectWA(encodedName) {
       const advName = decodeURIComponent(encodedName);
