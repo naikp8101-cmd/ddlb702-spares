@@ -476,7 +476,8 @@
         navigator.clipboard.writeText(cleanGr).catch(() => {});
       }
 
-      if (tr.includes('TCI') || tr.includes('XPS') || tr.includes('SCOU')) {
+            if (tr.includes('TCI') || tr.includes('XPS')) {
+
         showToast(`📋 GR ${cleanGr} copied! Paste in TCI Express`);
         window.open('https://www.tciexpress.in/trackingdocket.aspx', '_blank');
       } else {
