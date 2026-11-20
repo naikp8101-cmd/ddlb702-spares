@@ -468,10 +468,22 @@
       return `<div style="margin-top:6px;font-size:11.5px;font-weight:800;color:${col};">⏱️ Pending Age: ${days} Day(s)</div>`;
     }
 
-    function trackShipment(grNo, transporter) {
-      const url = `https://www.aftership.com/track/${encodeURIComponent(grNo)}`;
-      window.open(url, '_blank');
+        function trackShipment(grNo, transporter) {
+      const cleanGr = String(grNo || '').trim();
+      const tr = String(transporter || '').toUpperCase();
+
+      if (navigator.clipboard && cleanGr) {
+        navigator.clipboard.writeText(cleanGr).catch(() => {});
+      }
+
+      if (tr.includes('TCI') || tr.includes('XPS') || tr.includes('SCOU')) {
+        showToast(`📋 GR ${cleanGr} copied! Paste in TCI Express`);
+        window.open('https://www.tciexpress.in/trackingdocket.aspx', '_blank');
+      } else {
+        window.open(`https://www.aftership.com/track/${encodeURIComponent(cleanGr)}`, '_blank');
+      }
     }
+
 
     function shareWhatsAppQuote(partNum, partName, mrp, stock, source, binLoc) {
       const status = Number(stock) > 0 ? `✅ Available (Qty: ${stock})` : `⏳ On Order (4-5 Days)`;
