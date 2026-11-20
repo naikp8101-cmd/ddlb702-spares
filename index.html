@@ -188,7 +188,28 @@
       <div id="deadResults"><div class="empty">Loading dead stock report... ⏳</div></div>
     </div>
   </div>
+  <!-- TAB: ADVISORS -->
+  <div id="tab-advisors" class="tab-view" style="display:none;">
+    <div class="card" style="border-left:4px solid var(--primary);">
+      <div style="font-weight:800;font-size:14px;margin-bottom:8px;color:#0f172a;">➕ Add Advisor Part Order</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+        <input type="text" id="advName" placeholder="Advisor Name (e.g. Ravi)" style="padding:9px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;">
+        <input type="tel" id="advPhone" placeholder="WhatsApp No (10 digit)" style="padding:9px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+        <input type="text" id="advPart" placeholder="Part Number" style="padding:9px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;text-transform:uppercase;">
+        <input type="text" id="advJc" placeholder="Vehicle / JC No" style="padding:9px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;text-transform:uppercase;">
+      </div>
+      <button class="btn btn-primary" style="width:100%;" onclick="submitAdvisorOrder()">Save & Track Part</button>
+    </div>
 
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:10px 0 6px;">
+      <div style="font-weight:800;font-size:13.5px;color:#334155;">👨‍🔧 Advisor-Wise Live Status</div>
+      <button class="btn btn-sm btn-outline" style="border-color:var(--primary);color:var(--primary);" onclick="loadAdvisorOrders(true)">🔄 Refresh Status</button>
+    </div>
+    <div id="advisorResults"><div class="empty">Tap Advisors tab to check live status...</div></div>
+  </div>
+  
   <nav class="bottom-nav">
     <div class="nav-item active" id="nav-stock" onclick="switchTab('stock', this)"><span class="nav-icon">📦</span><span>Stock</span></div>
     <div class="nav-item" id="nav-dealer" onclick="switchTab('dealer', this)"><span class="nav-icon">🏢</span><span>Co-Dealer</span></div>
@@ -196,6 +217,7 @@
     <div class="nav-item" id="nav-dispatch" onclick="switchTab('dispatch', this)"><span class="nav-icon">🚚</span><span>Dispatch</span></div>
     <div class="nav-item" id="nav-low" onclick="switchTab('low', this)"><span class="nav-icon">⚠️</span><span>Reorder</span></div>
     <div class="nav-item" id="nav-dead" onclick="switchTab('dead', this)"><span class="nav-icon">💤</span><span>Dead</span></div>
+    <div class="nav-item" id="nav-advisors" onclick="switchTab('advisors', this)"><span class="nav-icon">👨‍🔧</span>Advisors</div>
   </nav>
 
   <div class="modal" id="updateModal">
@@ -403,6 +425,7 @@
       if (tab === 'dispatch') loadDispatch();
       if (tab === 'low') loadLowStock();
       if (tab === 'dead') loadDeadStock();
+      if (tab === 'advisors') loadAdvisorOrders();
     }
 
     function filterByRack(rackCode, el) {
@@ -905,6 +928,114 @@
         if (r.success) { showToast('Updated successfully ✅'); searchStock(true); }
         else { alert('Update failed: ' + (r.message || 'Unknown error')); }
       } catch (e) { alert('Network error while saving'); }
+    }
+    let advisorCache = null;
+    async function loadAdvisorOrders(force = false) {
+      const box = document.getElementById('advisorResults');
+      if (force || !advisorCache) {
+        box.innerHTML = '<div class="empty">Checking live status across Stock, B/O, Invoice & Dispatch... ⏳</div>';
+        try {
+          const res = await fetch(`${API_URL}?action=advisor_orders`);
+          advisorCache = await res.json();
+        } catch (e) {
+          box.innerHTML = '<div class="empty">Error loading advisor orders.</div>';
+          return;
+        }
+      }
+      renderAdvisorGroups(advisorCache || []);
+    }
+
+    function renderAdvisorGroups(list) {
+      const box = document.getElementById('advisorResults');
+      if (!list.length) {
+        box.innerHTML = '<div class="empty">No advisor orders found in ADVISOR_ORDERS sheet.</div>';
+        return;
+      }
+
+      const groups = {};
+      list.forEach(item => {
+        const key = `${item.advisorName}||${item.phone}`;
+        if (!groups[key]) groups[key] = { name: item.advisorName, phone: item.phone, items: [] };
+        groups[key].items.push(item);
+      });
+
+      box.innerHTML = Object.values(groups).map(g => {
+        const readyCount = g.items.filter(x => x.stage.includes('IN STOCK') || x.stage.includes('INVOICE') || x.stage.includes('DISPATCH')).length;
+        const rowsHtml = g.items.map(p => {
+          const isReady = p.stage.includes('IN STOCK') || p.stage.includes('INVOICE') || p.stage.includes('DISPATCH');
+          const badgeColor = isReady ? '#16a34a' : '#d97706';
+          const badgeBg = isReady ? '#dcfce7' : '#fef3c7';
+          return `
+            <div style="padding:8px 0;border-top:1px solid #f1f5f9;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+                <div style="font-weight:800;font-size:13px;color:#0f172a;">${p.partNum} <span style="font-weight:600;color:#64748b;font-size:11.5px;">(${p.jcNo})</span></div>
+                <span style="background:${badgeBg};color:${badgeColor};font-weight:800;font-size:10.5px;padding:3px 7px;border-radius:6px;">${p.stage}</span>
+              </div>
+              ${p.partName ? `<div style="font-size:11.5px;color:#475569;margin-top:2px;">${p.partName}</div>` : ''}
+              <div style="font-size:11.5px;color:#0284c7;font-weight:600;margin-top:2px;">${p.etaInfo !== '-' ? p.etaInfo : 'Awaiting dispatch update'}</div>
+            </div>`;
+        }).join('');
+
+        return `
+          <div class="card">
+            <div class="card-accent" style="background:${readyCount > 0 ? 'var(--green)' : '#f59e0b'};"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <div>
+                <div style="font-weight:800;font-size:15px;color:#0f172a;">👨‍🔧 ${g.name}</div>
+                <div style="font-size:11.5px;color:#64748b;">📱 ${g.phone || 'No Phone'} · ${g.items.length} Part(s) (${readyCount} Ready/Dispatched)</div>
+              </div>
+              <button class="btn btn-quote" style="padding:7px 11px;font-size:12px;flex:0 0 auto;" onclick="sendAdvisorWhatsApp('${encodeURIComponent(g.name)}','${g.phone}')">📲 Send WhatsApp</button>
+            </div>
+            ${rowsHtml}
+          </div>`;
+      }).join('');
+    }
+
+    function sendAdvisorWhatsApp(encodedName, phone) {
+      const name = decodeURIComponent(encodedName);
+      const items = (advisorCache || []).filter(x => x.advisorName === name && x.phone === phone);
+      if (!items.length) return;
+
+      const lines = [`*DDLB702 Spares - Order Update*`, `Hello *${name}*, here is your spare parts status:\n`];
+      items.forEach((p, idx) => {
+        lines.push(`${idx + 1}. *${p.partNum}* (${p.jcNo})${p.partName ? ' - ' + p.partName : ''}`);
+        lines.push(`   Status: *${p.stage}*`);
+        if (p.etaInfo && p.etaInfo !== '-') lines.push(`   Details: ${p.etaInfo}`);
+      });
+      lines.push(`\n- DDLB702 Parts Team`);
+
+      let cleanPhone = String(phone || '').replace(/\D/g, '');
+      if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
+      const url = cleanPhone
+        ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(lines.join('\n'))}`
+        : `https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`;
+      window.open(url, '_blank');
+    }
+
+    async function submitAdvisorOrder() {
+      const advisor = document.getElementById('advName').value.trim();
+      const phone = document.getElementById('advPhone').value.trim();
+      const part = document.getElementById('advPart').value.trim().toUpperCase();
+      const jc = document.getElementById('advJc').value.trim().toUpperCase();
+
+      if (!advisor || !part) {
+        showToast('Advisor Name & Part Number haaki!');
+        return;
+      }
+      showToast('Saving order... ⏳');
+      try {
+        const url = `${API_URL}?action=add_advisor_order&advisor=${encodeURIComponent(advisor)}&phone=${encodeURIComponent(phone)}&part=${encodeURIComponent(part)}&jc=${encodeURIComponent(jc)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById('advPart').value = '';
+          document.getElementById('advJc').value = '';
+          showToast('Saved! Checking live status... ✅');
+          loadAdvisorOrders(true);
+        }
+      } catch (e) {
+        showToast('Error saving order');
+      }
     }
   </script>
 </body>
