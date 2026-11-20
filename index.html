@@ -1040,7 +1040,7 @@
       renderAdvisorGroups(advisorCache || []);
     }
 
-        function renderAdvisorGroups(list) {
+            function renderAdvisorGroups(list) {
       const box = document.getElementById('advisorResults');
       if (!list || !list.length) {
         box.innerHTML = '<div class="empty">No advisor orders saved yet.</div>';
@@ -1059,32 +1059,40 @@
           partNo: item.partNo || '-',
           partName: item.partName || '',
           jc: item.jc || '-',
-          stage: item.stage || 'Pending / Not Ordered',
-          inStock: Boolean(item.inStock || String(item.stage).includes('IN STOCK'))
+          stage: String(item.stage || 'PENDING / NOT ORDERED').toUpperCase(),
+          details: item.details || '',
+          inStock: Boolean(item.inStock || String(item.stage).toUpperCase().includes('IN STOCK'))
         });
       });
 
       box.innerHTML = Object.values(groups).map(g => {
-        const readyCount = g.items.filter(x => x.inStock || x.stage.includes('INVOICED')).length;
+        const allGreen = g.items.some(x => x.inStock || x.stage.includes('INVOICED') || x.stage.includes('DISPATCHED'));
         const rowsHtml = g.items.map((p, idx) => {
-          const isReady = p.inStock || p.stage.includes('INVOICED');
-          const badgeColor = isReady ? '#15803d' : (p.stage.includes('ALLO') || p.stage.includes('U/P') || p.stage.includes('U/INV') ? '#1d4ed8' : '#b45309');
-          const badgeBg = isReady ? '#dcfce7' : (p.stage.includes('ALLO') || p.stage.includes('U/P') || p.stage.includes('U/INV') ? '#dbeafe' : '#fef3c7');
+          const isGreen = p.inStock || p.stage.includes('INVOICED') || p.stage.includes('DISPATCHED');
+          const isPending = p.stage.includes('PENDING') || p.stage.includes('NOT ORDERED');
+
+          // 3 Distinct Status Colours: Green (Ready/Dispatched), Red (Not Ordered), Amber (B/O, Allo, U/P, U/Inv)
+          const badgeColor = isGreen ? '#15803d' : (isPending ? '#dc2626' : '#b45309');
+          const badgeBg    = isGreen ? '#dcfce7' : (isPending ? '#fee2e2' : '#fef3c7');
+          const borderLeft = isGreen ? '#16a34a' : (isPending ? '#ef4444' : '#f59e0b');
+          const icon       = isGreen ? '✅' : (isPending ? '🔴' : '⏳');
+
           return `
-            <div style="padding:9px 0;border-top:1px solid #e2e8f0;">
+            <div style="padding:9px 8px;margin-top:6px;border-radius:8px;background:#ffffff;border:1px solid #e2e8f0;border-left:4px solid ${borderLeft};">
               <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
                 <div style="font-weight:800;font-size:14px;color:#0f172a;">${idx + 1}. ${p.partNo}</div>
-                <span style="background:${badgeBg};color:${badgeColor};font-weight:800;font-size:11px;padding:3px 8px;border-radius:6px;white-space:nowrap;">${p.stage}</span>
+                <span style="background:${badgeBg};color:${badgeColor};font-weight:800;font-size:10.5px;padding:3px 8px;border-radius:6px;white-space:nowrap;">${icon} ${p.stage}</span>
               </div>
-              ${p.partName ? `<div style="font-size:12px;color:#334155;font-weight:600;margin-top:2px;">${p.partName}</div>` : ''}
-              <div style="font-size:11.5px;color:#64748b;margin-top:2px;">🚗 Vehicle / JC: <b style="color:#0f172a;">${p.jc}</b></div>
+              ${p.partName ? `<div style="font-size:12px;color:#334155;font-weight:700;margin-top:2px;">${p.partName}</div>` : ''}
+              <div style="font-size:11.5px;color:#475569;margin-top:3px;">🚗 Vehicle / JC: <b style="color:#0f172a;">${p.jc}</b></div>
+              ${p.details ? `<div style="font-size:11px;color:#0369a1;background:#f0f9ff;padding:4px 7px;border-radius:6px;margin-top:4px;font-weight:700;">📋 ${p.details}</div>` : ''}
             </div>`;
         }).join('');
 
         return `
-          <div class="card" style="${readyCount > 0 ? 'border:2px solid #16a34a;background:#f0fdf4;' : ''}">
-            <div class="card-accent" style="background:${readyCount > 0 ? 'var(--green)' : '#2563eb'};"></div>
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
+          <div class="card" style="${allGreen ? 'border:1.5px solid #86efac;background:#f0fdf4;' : ''}">
+            <div class="card-accent" style="background:${allGreen ? '#16a34a' : '#2563eb'};"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;">
               <div>
                 <div style="font-weight:800;font-size:15.5px;color:#0f172a;">👨‍🔧 ${g.name}</div>
                 <div style="font-size:11.5px;color:#475569;">📱 ${g.phone ? '+91 ' + g.phone : 'No Direct No'} · <b>${g.items.length}</b> Part(s)</div>
@@ -1098,6 +1106,7 @@
           </div>`;
       }).join('');
     }
+
 
 
         function buildAdvisorMessage(advName) {
