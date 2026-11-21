@@ -1408,10 +1408,17 @@
         const lineStr = lineItems.map(i => i.str).join(' ');
         const up = lineStr.toUpperCase();
 
-        if (!periodText && up.includes('FROM DATE:')) {
-          const m = lineStr.match(/From Date\s*:\s*([0-9A-Z\-]+)\s*To Date\s*:\s*([0-9A-Z\-]+)/i);
-          if (m) periodText = `${m[1]} to ${m[2]}`;
+                if (!periodText && (up.includes('FROM DATE') || up.includes('TO DATE') || /\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)-\d{2}\b/.test(up))) {
+          const m = lineStr.match(/From\s*Date\s*:?\s*([0-9A-Z\-]+).*?To\s*Date\s*:?\s*([0-9A-Z\-]+)/i);
+          const monMap = { JAN:'January', FEB:'February', MAR:'March', APR:'April', MAY:'May', JUN:'June', JUL:'July', AUG:'August', SEP:'September', OCT:'October', NOV:'November', DEC:'December' };
+          const monHit = lineStr.match(/\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[-\s]+(\d{2,4})\b/i);
+          if (m) {
+            periodText = `${m[1]} to ${m[2]}` + (monHit ? ` (${monMap[monHit[1].toUpperCase()]} 20${monHit[2].slice(-2)})` : '');
+          } else if (monHit) {
+            periodText = `${monMap[monHit[1].toUpperCase()]} 20${monHit[2].slice(-2)}`;
+          }
         }
+
         if (!locationText && up.includes('LOCATION')) {
           const m = lineStr.match(/Location\s*:\s*([A-Z0-9\-]+)/i);
           if (m) locationText = m[1];
