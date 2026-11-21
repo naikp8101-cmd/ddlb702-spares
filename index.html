@@ -1231,6 +1231,28 @@
         showToast('Error saving order');
       }
     }
+    // Save active tab & restore on page refresh
+(function() {
+  const origSwitchTab = window.switchTab;
+  if (typeof origSwitchTab === 'function') {
+    window.switchTab = function(tabName, el) {
+      try { localStorage.setItem('ddlb_active_tab', tabName); } catch (e) {}
+      return origSwitchTab.apply(this, arguments);
+    };
+  }
+  window.addEventListener('DOMContentLoaded', () => {
+    try {
+      const savedTab = localStorage.getItem('ddlb_active_tab');
+      if (savedTab && savedTab !== 'stock') {
+        const navBtn = document.querySelector(`[onclick*="switchTab('${savedTab}'"]`) || document.getElementById('nav-' + savedTab);
+        if (navBtn && typeof window.switchTab === 'function') {
+          window.switchTab(savedTab, navBtn);
+        }
+      }
+    } catch (e) {}
+  });
+})();
+    
   </script>
 </body>
 </html>
