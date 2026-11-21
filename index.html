@@ -457,7 +457,7 @@
     async function searchStock(silent = false) {
       const raw = document.getElementById('stockQuery').value.trim();
       if (!raw) return;
-      const clean = raw.replace(/[-\s]/g, '').toUpperCase();
+      const clean = extractPartNumber(raw);
       document.getElementById('stockQuery').value = cleanQ;
       const box = document.getElementById('stockResults');
       if (!silent) box.innerHTML = '<div class="empty">Searching stock & bins... ⏳</div>';
