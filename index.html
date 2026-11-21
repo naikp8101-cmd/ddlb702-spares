@@ -1025,13 +1025,45 @@
 
     // ADVISOR-WISE GROUP SHARE & DIRECT WHATSAPP
     let advisorCache = null;
-    async function loadAdvisorOrders(force = false) {
+        async function loadAdvisorOrders(force = false) {
       const box = document.getElementById('advisorResults');
       if (force || !advisorCache) {
-        box.innerHTML = '<div class="empty">Checking live status across Stock, B/O, Invoice & Dispatch... ⏳</div>';
+        box.innerHTML = '<div class="empty">Checking live status across Stock, B/O, Allo, Picking, Invoice & Dispatch... ⏳</div>';
         try {
           const res = await fetch(`${API_URL}?action=advisor_orders`);
-          advisorCache = await res.json();
+          const rawList = await res.json();
+
+          // Enrich each part using the working track_part API for full FIN/Courier/ETA/Stage details
+          advisorCache = await Promise.all((rawList || []).map(async (item) => {
+            const pNo = item.partNo || item.partNum || '';
+            const isInStock = Boolean(item.inStock || String(item.stage).toUpperCase().includes('IN STOCK'));
+            if (isInStock || !pNo) return item;
+
+            try {
+              const tRes = await fetch(`${API_URL}?action=track_part&q=${encodeURIComponent(pNo)}`);
+              const tList = await tRes.json();
+              if (tList && tList.length > 0) {
+                const top = tList[0];
+                let det = '';
+                if (top.tracking && top.tracking.finNo) {
+                  const tr = top.tracking;
+                  const eta = (tr.eta && tr.eta !== 'NA') ? tr.eta : 'In Transit';
+                  const loc = (tr.currLoc && tr.currLoc !== 'NA') ? tr.currLoc : 'NA';
+                  det = `FIN: ${tr.finNo} | ${tr.transporter || 'Courier'} | Loc: ${loc} | ETA: ${eta}`;
+                } else if (top.details) {
+                  const ord = top.details['MSIL Order No'] || top.details['Order No'] || '';
+                  if (ord) det = `Order No: ${ord}`;
+                }
+                return {
+                  ...item,
+                  partName: item.partName || top.partName || '',
+                  stage: top.tracking ? 'DISPATCHED' : (top.stage || item.stage),
+                  details: det
+                };
+              }
+            } catch (err) {}
+            return item;
+          }));
         } catch (e) {
           box.innerHTML = '<div class="empty">Error loading advisor orders.</div>';
           return;
@@ -1039,6 +1071,7 @@
       }
       renderAdvisorGroups(advisorCache || []);
     }
+
 
             function renderAdvisorGroups(list) {
       const box = document.getElementById('advisorResults');
