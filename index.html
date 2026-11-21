@@ -1231,27 +1231,78 @@
         showToast('Error saving order');
       }
     }
-    // Save active tab & restore on page refresh
+    // Save active tab, apply Shruti/Shakti distinct colors, and restore tab on refresh
 (function() {
-  const origSwitchTab = window.switchTab;
-  if (typeof origSwitchTab === 'function') {
-    window.switchTab = function(tabName, el) {
-      try { localStorage.setItem('ddlb_active_tab', tabName); } catch (e) {}
-      return origSwitchTab.apply(this, arguments);
-    };
+  // 1. Capture every tab click in bottom navigation
+  document.addEventListener('click', function(e) {
+    const navBtn = e.target.closest('.nav-item, .tab-btn, [onclick*="switchTab"], nav button, nav a');
+    if (navBtn) {
+      const oc = navBtn.getAttribute('onclick') || '';
+      const m = oc.match(/switchTab\(['"]([^'"]+)['"]/);
+      const tabKey = m ? m[1] : (navBtn.dataset.tab || navBtn.id || navBtn.innerText.trim().toLowerCase());
+      if (tabKey) {
+        try { localStorage.setItem('ddlb_saved_tab', tabKey); } catch (err) {}
+      }
+    }
+  }, true);
+
+  // 2. Style Shruti Motors (Blue) vs Shakti Motors (Purple/Orange) cards & badges
+  function styleDealerCards() {
+    document.querySelectorAll('.card').forEach(card => {
+      const txt = card.innerText || '';
+      if (txt.includes('Shakti Motors')) {
+        card.style.borderLeft = '5px solid #9333ea';
+        card.style.background = '#faf5ff';
+        card.querySelectorAll('span, div').forEach(el => {
+          if (el.children.length === 0 && el.textContent.trim() === 'Shakti Motors') {
+            el.style.background = '#f3e8ff';
+            el.style.color = '#7e22ce';
+            el.style.border = '1px solid #d8b4fe';
+          }
+        });
+      } else if (txt.includes('Shruti Motors')) {
+        card.style.borderLeft = '5px solid #0284c7';
+        card.style.background = '#f0f9ff';
+        card.querySelectorAll('span, div').forEach(el => {
+          if (el.children.length === 0 && el.textContent.trim() === 'Shruti Motors') {
+            el.style.background = '#e0f2fe';
+            el.style.color = '#0369a1';
+            el.style.border = '1px solid #7dd3fc';
+          }
+        });
+      }
+    });
   }
-  window.addEventListener('DOMContentLoaded', () => {
+
+  const obs = new MutationObserver(styleDealerCards);
+  obs.observe(document.body, { childList: true, subtree: true });
+
+  // 3. Restore last active tab immediately on page load
+  function restoreLastTab() {
     try {
-      const savedTab = localStorage.getItem('ddlb_active_tab');
-      if (savedTab && savedTab !== 'stock') {
-        const navBtn = document.querySelector(`[onclick*="switchTab('${savedTab}'"]`) || document.getElementById('nav-' + savedTab);
-        if (navBtn && typeof window.switchTab === 'function') {
-          window.switchTab(savedTab, navBtn);
+      const saved = localStorage.getItem('ddlb_saved_tab');
+      if (!saved || saved === 'stock') return;
+      const byOnclick = document.querySelector(`[onclick*="switchTab('${saved}'"]`);
+      if (byOnclick) { byOnclick.click(); return; }
+      const byId = document.getElementById(saved) || document.getElementById('nav-' + saved);
+      if (byId) { byId.click(); return; }
+      const allBtns = document.querySelectorAll('.nav-item, .tab-btn, nav button, nav a');
+      for (let b of allBtns) {
+        if (b.innerText && b.innerText.trim().toLowerCase().includes(saved)) {
+          b.click();
+          break;
         }
       }
-    } catch (e) {}
-  });
+    } catch (err) {}
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => setTimeout(restoreLastTab, 80));
+  } else {
+    setTimeout(restoreLastTab, 80);
+  }
 })();
+
     
   </script>
 </body>
