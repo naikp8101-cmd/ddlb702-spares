@@ -349,20 +349,29 @@
     // DIRECT LIVE CAMERA QR SCANNER (BIN & MARUTI PART)
     // =========================================================================
     let qrStream = null;
-    async function openDirectQrScanner() {
+        async function openDirectQrScanner() {
       const modal = document.getElementById('liveQrModal');
       const statusEl = document.getElementById('qrScanStatus');
       modal.style.display = 'flex';
-      statusEl.innerText = 'Starting camera...';
+      statusEl.innerText = 'Starting HD camera...';
 
       try {
-        qrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        qrStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            focusMode: 'continuous'
+          }
+        });
         const video = document.getElementById('qrVideoFeed');
         video.srcObject = qrStream;
-        statusEl.innerText = 'Point camera at Bin QR or Maruti Part QR...';
+        statusEl.innerText = 'Point camera closely at Bin QR or Maruti Data Matrix...';
 
         if ('BarcodeDetector' in window) {
-          const detector = new BarcodeDetector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13'] });
+          const detector = new BarcodeDetector({
+            formats: ['qr_code', 'data_matrix', 'code_128', 'code_39', 'ean_13', 'aztec']
+          });
           const scanLoop = async () => {
             if (!qrStream) return;
             try {
@@ -397,6 +406,7 @@
       }
       document.getElementById('liveQrModal').style.display = 'none';
     }
+
               // =========================================================================
     // TAB NAVIGATION & ANALYTICS CACHE
     // =========================================================================
