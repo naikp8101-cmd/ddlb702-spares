@@ -1231,9 +1231,44 @@
         showToast('Error saving order');
       }
     }
-    // Save active tab, apply Shruti/Shakti distinct colors, and restore tab on refresh
+    // Instant Local Cache + Active Tab Persist on Refresh + Shruti/Shakti Colors
 (function() {
-  // 1. Capture every tab click in bottom navigation
+  // 1. Instant localStorage API Cache (0ms screen load + background refresh)
+  const origFetch = window.fetch;
+  window.fetch = async function(resource, init) {
+    const url = typeof resource === 'string' ? resource : (resource && resource.url) || '';
+    if (url.includes('script.google.com') && (!init || !init.method || init.method === 'GET')) {
+      const cacheKey = 'ddlb_api_' + (url.split('?')[1] || 'default');
+      const isMutation = url.includes('action=add_advisor_order') || url.includes('action=clear_cache');
+
+      if (!isMutation) {
+        const networkPromise = origFetch.apply(this, arguments).then(async resp => {
+          try {
+            const clone = resp.clone();
+            const text = await clone.text();
+            if (text && (text.startsWith('{') || text.startsWith('['))) {
+              localStorage.setItem(cacheKey, text);
+            }
+          } catch (e) {}
+          return resp;
+        });
+
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          return new Response(cached, { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return networkPromise;
+      } else {
+        // Clear advisor cache when adding new order
+        Object.keys(localStorage).forEach(k => {
+          if (k.includes('advisor_orders')) localStorage.removeItem(k);
+        });
+      }
+    }
+    return origFetch.apply(this, arguments);
+  };
+
+  // 2. Save clicked bottom tab
   document.addEventListener('click', function(e) {
     const navBtn = e.target.closest('.nav-item, .tab-btn, [onclick*="switchTab"], nav button, nav a');
     if (navBtn) {
@@ -1246,7 +1281,7 @@
     }
   }, true);
 
-  // 2. Style Shruti Motors (Blue) vs Shakti Motors (Purple/Orange) cards & badges
+  // 3. Distinct colors for Shruti Motors (Blue) vs Shakti Motors (Purple)
   function styleDealerCards() {
     document.querySelectorAll('.card').forEach(card => {
       const txt = card.innerText || '';
@@ -1274,10 +1309,9 @@
     });
   }
 
-  const obs = new MutationObserver(styleDealerCards);
-  obs.observe(document.body, { childList: true, subtree: true });
+  new MutationObserver(styleDealerCards).observe(document.body, { childList: true, subtree: true });
 
-  // 3. Restore last active tab immediately on page load
+  // 4. Restore last active tab on reload
   function restoreLastTab() {
     try {
       const saved = localStorage.getItem('ddlb_saved_tab');
@@ -1297,11 +1331,12 @@
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => setTimeout(restoreLastTab, 80));
+    document.addEventListener('DOMContentLoaded', () => setTimeout(restoreLastTab, 60));
   } else {
-    setTimeout(restoreLastTab, 80);
+    setTimeout(restoreLastTab, 60);
   }
 })();
+
 
     
   </script>
