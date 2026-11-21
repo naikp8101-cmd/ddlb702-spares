@@ -8,6 +8,10 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icon-192.png" />
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  
   <style>
     :root { --primary: #2563eb; --primary-dark: #1d4ed8; --bg: #f1f5f9; --card: #ffffff; --text: #0f172a; --muted: #64748b; --border: #e2e8f0; --green: #16a34a; --red: #dc2626; --amber: #d97706; }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -1336,7 +1340,324 @@
     setTimeout(restoreLastTab, 60);
   }
 })();
+// BATTERY (33610) & TYRE (43110) PDF REPORT WITH AUTO JC CONVERSION %, CSV & IMAGE
+(function() {
+  function injectBatteryTyreUI() {
+    const advTab = document.getElementById('tab-advisors') || document.querySelector('[id*="advisor"]');
+    if (!advTab || document.getElementById('btPdfBox')) return;
 
+    const box = document.createElement('div');
+    box.id = 'btPdfBox';
+    box.className = 'card';
+    box.style.cssText = 'margin-bottom:14px; border-left:5px solid #0d9488; background:#f0fdfa;';
+    box.innerHTML = `
+      <div style="font-weight:800; font-size:14px; color:#115e59; margin-bottom:4px;">
+        🔋🛞 Battery & Tyre Conversion Report (PDF)
+      </div>
+      <div style="font-size:11px; color:#475569; margin-bottom:8px;">
+        Upload <b>Advisor-wise PDF</b> & <b>Technician-wise PDF</b> — auto-calculates Unique Jobcards & Conversion %
+      </div>
+      <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:8px;">
+        <label style="font-size:11px; font-weight:700; color:#0f766e;">1. Advisor-Wise Consumption PDF:</label>
+        <input type="file" id="btAdvPdf" accept="application/pdf" style="font-size:12px; background:#fff; padding:6px; border:1px solid #cbd5e1; border-radius:6px;">
+        <label style="font-size:11px; font-weight:700; color:#0f766e;">2. Technician-Wise Consumption PDF:</label>
+        <input type="file" id="btTechPdf" accept="application/pdf" style="font-size:12px; background:#fff; padding:6px; border:1px solid #cbd5e1; border-radius:6px;">
+      </div>
+      <button id="btGenBtn" class="btn" style="width:100%; background:#0d9488; color:#fff; font-weight:700; padding:10px; border-radius:8px; border:none; font-size:13px;">
+        📊 Generate Conversion Report
+      </button>
+      <div id="btActionRow" style="display:none; gap:8px; margin-top:8px;">
+        <button id="btCsvBtn" class="btn" style="flex:1; background:#1d4ed8; color:#fff; font-weight:700; padding:8px; border-radius:8px; border:none; font-size:12px;">
+          📥 Download CSV
+        </button>
+        <button id="btImgBtn" class="btn" style="flex:1; background:#16a34a; color:#fff; font-weight:700; padding:8px; border-radius:8px; border:none; font-size:12px;">
+          🖼️ Share Report Image
+        </button>
+      </div>
+      <div id="btReportOut" style="margin-top:10px;"></div>
+    `;
+    advTab.insertBefore(box, advTab.firstChild);
+    document.getElementById('btGenBtn').addEventListener('click', buildFullConversionReport);
+  }
+
+  async function parseConsumptionPdf(file) {
+    const stats = {};
+    const details = [];
+    let periodText = '';
+    let locationText = '';
+    if (!file) return { stats, details, periodText, locationText };
+
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    let currentPart = '', currentDesc = '', currentCat = '';
+
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      const rowsMap = {};
+      content.items.forEach(item => {
+        const str = (item.str || '').trim();
+        if (!str) return;
+        const y = Math.round(item.transform[5] / 3) * 3;
+        if (!rowsMap[y]) rowsMap[y] = [];
+        rowsMap[y].push({ x: item.transform[4], str });
+      });
+
+      Object.keys(rowsMap).sort((a, b) => b - a).forEach(y => {
+        const lineItems = rowsMap[y].sort((a, b) => a.x - b.x);
+        const lineStr = lineItems.map(i => i.str).join(' ');
+        const up = lineStr.toUpperCase();
+
+        if (!periodText && up.includes('FROM DATE:')) {
+          const m = lineStr.match(/From Date\s*:\s*([0-9A-Z\-]+)\s*To Date\s*:\s*([0-9A-Z\-]+)/i);
+          if (m) periodText = `${m[1]} to ${m[2]}`;
+        }
+        if (!locationText && up.includes('LOCATION')) {
+          const m = lineStr.match(/Location\s*:\s*([A-Z0-9\-]+)/i);
+          if (m) locationText = m[1];
+        }
+
+        const partMatch = up.match(/(?:PART\s*NO\s*:?\s*)?\b([0-9A-Z]{5}[M\-][0-9A-Z\-]{4,12})\b/);
+        if (partMatch && (up.includes('PART NO') || lineItems[0].x < 120)) {
+          const pCode = partMatch[1];
+          if (!/^JC\d+/.test(pCode) && !/^ISS\d+/.test(pCode) && !/^KA\d+/.test(pCode)) {
+            currentPart = pCode;
+            currentDesc = lineStr.replace(partMatch[0], '').replace(/Part\s*No\s*:?/i, '').trim();
+            if (currentPart.startsWith('33610')) currentCat = 'BAT';
+            else if (currentPart.startsWith('43110')) currentCat = 'TYRE';
+            else currentCat = '';
+          }
+        }
+
+        const jcMatch = up.match(/\b(JC\d{6,})\b/);
+        if (!jcMatch) return;
+        const jcNo = jcMatch[1];
+
+        const codeMatch = up.match(/\b(SA\d+|WM\d*|TECH\d+|DNT\d+|UNDEFINED)\b/);
+        const personCode = codeMatch ? codeMatch[1] : 'UNKNOWN';
+
+        let personName = personCode;
+        if (codeMatch) {
+          const codeIdx = lineItems.findIndex(it => it.str.toUpperCase().trim() === personCode);
+          if (codeIdx !== -1 && lineItems[codeIdx + 1]) {
+            const candidate = lineItems[codeIdx + 1].str.trim().toUpperCase();
+            if (candidate && !/^JC\d+/.test(candidate) && candidate !== '====') {
+              personName = candidate;
+            }
+          }
+        }
+
+        if (!stats[personCode]) {
+          stats[personCode] = { code: personCode, name: personName, jcs: new Set(), bat: 0, tyre: 0 };
+        } else if (stats[personCode].name === personCode && personName !== personCode) {
+          stats[personCode].name = personName;
+        }
+        stats[personCode].jcs.add(jcNo);
+
+        if (currentCat === 'BAT' || currentCat === 'TYRE') {
+          let qty = 1;
+          const rightMost = lineItems[lineItems.length - 1];
+          if (rightMost && /^\d{1,2}(\.0+)?$/.test(rightMost.str.trim())) {
+            const qVal = Math.round(Number(rightMost.str.trim()));
+            if (qVal > 0 && qVal <= 20) qty = qVal;
+          }
+          if (currentCat === 'BAT') stats[personCode].bat += qty;
+          if (currentCat === 'TYRE') stats[personCode].tyre += qty;
+
+          const regMatch = up.match(/\b([A-Z]{2}\d{2}[A-Z0-9]{1,6})\b/);
+          const dateMatch = up.match(/\b(\d{2}-[A-Z]{3}-\d{2})\b/);
+          details.push({
+            category: currentCat === 'BAT' ? 'Battery' : 'Tyre',
+            partNo: currentPart, desc: currentDesc, qty: qty,
+            code: personCode, name: stats[personCode].name,
+            jc: jcNo, regNo: regMatch ? regMatch[1] : '-', date: dateMatch ? dateMatch[1] : '-'
+          });
+        }
+      });
+    }
+    return { stats, details, periodText, locationText };
+  }
+
+  async function buildFullConversionReport() {
+    const fAdv = document.getElementById('btAdvPdf').files[0];
+    const fTech = document.getElementById('btTechPdf').files[0];
+    const out = document.getElementById('btReportOut');
+    const actionRow = document.getElementById('btActionRow');
+
+    if (!fAdv && !fTech) {
+      out.innerHTML = '<div style="color:#dc2626; font-size:12px; font-weight:600;">Please select Advisor PDF & Technician PDF first!</div>';
+      return;
+    }
+
+    actionRow.style.display = 'none';
+    out.innerHTML = '<div style="color:#0f766e; font-size:12px; font-weight:700;">Scanning all Jobcards, Batteries & Tyres... ⏳</div>';
+
+    try {
+      const advData = await parseConsumptionPdf(fAdv);
+      const techData = await parseConsumptionPdf(fTech);
+      const period = advData.periodText || techData.periodText || 'Current Period';
+      const loc = advData.locationText || techData.locationText || 'DDLB702';
+
+      const summarize = (statsObj) => {
+        const list = Object.values(statsObj).map(r => {
+          const totalJc = r.jcs.size;
+          const totalBt = r.bat + r.tyre;
+          const batPct = totalJc > 0 ? ((r.bat / totalJc) * 100).toFixed(1) : '0.0';
+          const tyrePct = totalJc > 0 ? ((r.tyre / totalJc) * 100).toFixed(1) : '0.0';
+          const convPct = totalJc > 0 ? ((totalBt / totalJc) * 100).toFixed(1) : '0.0';
+          return { ...r, totalJc, totalBt, batPct, tyrePct, convPct };
+        });
+        list.sort((a, b) => Number(b.convPct) - Number(a.convPct) || b.totalBt - a.totalBt);
+        return list;
+      };
+
+      const advList = summarize(advData.stats);
+      const techList = summarize(techData.stats);
+
+      const calcTotals = (list) => list.reduce((acc, r) => {
+        acc.jc += r.totalJc; acc.bat += r.bat; acc.tyre += r.tyre;
+        return acc;
+      }, { jc: 0, bat: 0, tyre: 0 });
+
+      const advTot = calcTotals(advList);
+      const techTot = calcTotals(techList);
+      const mainTot = advList.length ? advTot : techTot;
+      const grandBatPct = mainTot.jc > 0 ? ((mainTot.bat / mainTot.jc) * 100).toFixed(2) : '0.00';
+      const grandTyrePct = mainTot.jc > 0 ? ((mainTot.tyre / mainTot.jc) * 100).toFixed(2) : '0.00';
+      const grandConvPct = mainTot.jc > 0 ? (((mainTot.bat + mainTot.tyre) / mainTot.jc) * 100).toFixed(2) : '0.00';
+
+      const renderSectionTable = (title, list, tot) => {
+        if (!list.length) return '';
+        const totConv = tot.jc > 0 ? (((tot.bat + tot.tyre) / tot.jc) * 100).toFixed(1) : '0.0';
+        const rowsHtml = list.map(r => `
+          <tr style="border-bottom:1px solid #e2e8f0;">
+            <td style="padding:5px 4px; font-weight:700; color:#0f172a;">${r.name} <span style="font-size:9px; color:#64748b;">(${r.code})</span></td>
+            <td style="padding:5px 3px; text-align:center; font-weight:700; color:#334155;">${r.totalJc}</td>
+            <td style="padding:5px 3px; text-align:center; font-weight:700; color:#0369a1;">${r.bat}</td>
+            <td style="padding:5px 3px; text-align:center; font-weight:700; color:#b45309;">${r.tyre}</td>
+            <td style="padding:5px 4px; text-align:center; font-weight:800; color:#047857; background:#ecfdf5;">${r.convPct}%</td>
+          </tr>
+        `).join('');
+
+        return `
+          <div style="font-weight:800; font-size:12px; color:#0f172a; margin:10px 0 4px;">${title}</div>
+          <table style="width:100%; border-collapse:collapse; background:#fff; font-size:11px; border:1px solid #cbd5e1;">
+            <thead>
+              <tr style="background:#0f766e; color:#fff;">
+                <th style="padding:6px 4px; text-align:left;">Name</th>
+                <th style="padding:6px 3px; text-align:center;">JCs</th>
+                <th style="padding:6px 3px; text-align:center;">🔋Bat</th>
+                <th style="padding:6px 3px; text-align:center;">🛞Tyre</th>
+                <th style="padding:6px 4px; text-align:center;">Conv %</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+              <tr style="background:#f1f5f9; font-weight:800; border-top:2px solid #94a3b8;">
+                <td style="padding:6px 4px;">TOTAL</td>
+                <td style="padding:6px 3px; text-align:center;">${tot.jc}</td>
+                <td style="padding:6px 3px; text-align:center; color:#0369a1;">${tot.bat}</td>
+                <td style="padding:6px 3px; text-align:center; color:#b45309;">${tot.tyre}</td>
+                <td style="padding:6px 4px; text-align:center; color:#047857;">${totConv}%</td>
+              </tr>
+            </tbody>
+          </table>
+        `;
+      };
+
+      out.innerHTML = `
+        <div id="btPrintableCard" style="background:#ffffff; border:2px solid #0d9488; border-radius:10px; padding:12px; box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+          <div style="text-align:center; border-bottom:1.5px dashed #cbd5e1; padding-bottom:8px; margin-bottom:8px;">
+            <div style="font-weight:900; font-size:15px; color:#0f766e;">SHREE LAKSHMI CARS PVT LTD (${loc})</div>
+            <div style="font-weight:700; font-size:12px; color:#1e293b;">🔋 Battery & 🛞 Tyre Conversion Report</div>
+            <div style="font-size:10px; color:#64748b;">Period: ${period}</div>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:4px; margin-bottom:8px; text-align:center;">
+            <div style="background:#f1f5f9; padding:5px 2px; border-radius:6px;">
+              <div style="font-size:9px; color:#475569; font-weight:700;">TOTAL JCs</div>
+              <div style="font-size:14px; font-weight:900; color:#0f172a;">${mainTot.jc}</div>
+            </div>
+            <div style="background:#e0f2fe; padding:5px 2px; border-radius:6px;">
+              <div style="font-size:9px; color:#0369a1; font-weight:700;">BATTERY</div>
+              <div style="font-size:14px; font-weight:900; color:#0c4a6e;">${mainTot.bat} <span style="font-size:9px;">(${grandBatPct}%)</span></div>
+            </div>
+            <div style="background:#fef3c7; padding:5px 2px; border-radius:6px;">
+              <div style="font-size:9px; color:#b45309; font-weight:700;">TYRE</div>
+              <div style="font-size:14px; font-weight:900; color:#78350f;">${mainTot.tyre} <span style="font-size:9px;">(${grandTyrePct}%)</span></div>
+            </div>
+            <div style="background:#d1fae5; padding:5px 2px; border-radius:6px;">
+              <div style="font-size:9px; color:#047857; font-weight:700;">OVERALL %</div>
+              <div style="font-size:14px; font-weight:900; color:#065f46;">${grandConvPct}%</div>
+            </div>
+          </div>
+          ${renderSectionTable('🧑‍💼 Service Advisor-Wise Conversion', advList, advTot)}
+          ${renderSectionTable('🔧 Technician-Wise Conversion', techList, techTot)}
+          <div style="text-align:right; font-size:9px; color:#94a3b8; margin-top:8px;">Generated by DDLB702 Spares App</div>
+        </div>
+      `;
+
+      actionRow.style.display = 'flex';
+
+      document.getElementById('btCsvBtn').onclick = () => {
+        const csvLines = [
+          [`SHREE LAKSHMI CARS PVT LTD (${loc}) - Battery & Tyre Conversion Report (${period})`],
+          [],
+          ['ADVISOR-WISE SUMMARY'],
+          ['Adv Code', 'Advisor Name', 'Total Jobcards', 'Battery Qty', 'Tyre Qty', 'Total Bat+Tyre', 'Battery Conv %', 'Tyre Conv %', 'Overall Conv %'],
+          ...advList.map(r => [r.code, `"${r.name}"`, r.totalJc, r.bat, r.tyre, r.totalBt, r.batPct + '%', r.tyrePct + '%', r.convPct + '%']),
+          [],
+          ['TECHNICIAN-WISE SUMMARY'],
+          ['Tech Code', 'Technician Name', 'Total Jobcards', 'Battery Qty', 'Tyre Qty', 'Total Bat+Tyre', 'Battery Conv %', 'Tyre Conv %', 'Overall Conv %'],
+          ...techList.map(r => [r.code, `"${r.name}"`, r.totalJc, r.bat, r.tyre, r.totalBt, r.batPct + '%', r.tyrePct + '%', r.convPct + '%']),
+          [],
+          ['DETAILED BATTERY & TYRE ISSUE LIST'],
+          ['Category', 'Part Number', 'Description', 'Qty', 'Code', 'Advisor/Tech Name', 'Jobcard No', 'Reg No', 'Issue Date'],
+          ...[...advData.details, ...techData.details].map(d => [d.category, d.partNo, `"${d.desc}"`, d.qty, d.code, `"${d.name}"`, d.jc, d.regNo, d.date])
+        ];
+        const blob = new Blob([csvLines.map(e => e.join(',')).join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `Battery_Tyre_Conversion_${period.replace(/\s+/g, '_')}.csv`;
+        link.click();
+      };
+
+      document.getElementById('btImgBtn').onclick = async () => {
+        const cardEl = document.getElementById('btPrintableCard');
+        if (!cardEl || typeof html2canvas !== 'function') return;
+        const btn = document.getElementById('btImgBtn');
+        btn.innerText = 'Creating Image... ⏳';
+        try {
+          const canvas = await html2canvas(cardEl, { scale: 2, backgroundColor: '#ffffff' });
+          canvas.toBlob(async (blob) => {
+            btn.innerText = '🖼️ Share Report Image';
+            if (!blob) return;
+            const file = new File([blob], 'Battery_Tyre_Conversion_Report.png', { type: 'image/png' });
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+              await navigator.share({
+                files: [file],
+                title: 'Battery & Tyre Conversion Report',
+                text: `DDLB702 Battery & Tyre Report (${period}) - Overall Conv: ${grandConvPct}%`
+              });
+            } else {
+              const a = document.createElement('a');
+              a.href = URL.createObjectURL(blob);
+              a.download = 'Battery_Tyre_Conversion_Report.png';
+              a.click();
+            }
+          }, 'image/png');
+        } catch (e) {
+          btn.innerText = '🖼️ Share Report Image';
+        }
+      };
+    } catch (err) {
+      out.innerHTML = `<div style="color:#dc2626; font-size:12px;">Error reading PDFs: ${err.message}</div>`;
+    }
+  }
+
+  new MutationObserver(injectBatteryTyreUI).observe(document.body, { childList: true, subtree: true });
+  setTimeout(injectBatteryTyreUI, 300);
+})();
+  
 
     
   </script>
