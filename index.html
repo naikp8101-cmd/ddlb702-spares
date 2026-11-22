@@ -1444,7 +1444,7 @@ if (!isRemoteBat && (currentPart.startsWith('33610') || /\b(BATTERY|AMARON|EXIDE
 
         const codeMatch = up.match(/\b(SA\d+|WM\d*|TECH\d+|DNT\d+|UNDEFINED)\b/);
         const personCode = codeMatch ? codeMatch[1] : 'UNKNOWN';
-const c = /HM GIRISHKUMAR|\bSA1\b/i.test(up) ? 'SA1' : /SOMACHANDRAPPA|\bWM\b/i.test(up) ? 'WM' : /SHRIDHAR|\bSA19\b/i.test(up) ? 'SA19' : personCode;
+
 if (currentCat === 'BAT') stats[personCode].bat += qty;
         
 
