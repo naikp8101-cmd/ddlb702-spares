@@ -1455,7 +1455,8 @@ if (!isRemoteBat && (currentPart.startsWith('33610') || /\b(BATTERY|AMARON|EXIDE
             }
           }
         }
-
+if (personCode === 'UNDEFINED') personName = 'UNASSIGNED';
+        
         if (!stats[personCode]) {
           stats[personCode] = { code: personCode, name: personName, jcs: new Set(), bat: 0, tyre: 0 };
         } else if (stats[personCode].name === personCode && personName !== personCode) {
