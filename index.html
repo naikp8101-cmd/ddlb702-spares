@@ -1823,124 +1823,57 @@
   new MutationObserver(() => syncAdvisorStockBadges()).observe(document.body, { childList: true, subtree: true });
   setTimeout(syncAdvisorStockBadges, 600);
 })();
-   // Sync On-Order / Dispatched / Invoice qty into Reorder ON ORD
-(function() {
-  const SHEET_ID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
-  let onOrdMap = null;
+   <script>
+(function(){
+  const SID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
+  const clean = s => String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  const num = v => Number(String(v||'').replace(/[^0-9.-]/g,''))||0;
+  let cache = null;
 
-  const clean = (s) => String(s || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const num = (v) => Number(String(v || '').replace(/[^0-9.-]/g, '')) || 0;
-
-  async function fetchSheetRows(sheetName) {
-    try {
-      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
-      const txt = await (await fetch(url)).text();
-      const json = JSON.parse(txt.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, ''));
-      return json.table.rows || [];
-    } catch (e) {
-      return [];
-    }
-  }
-
-  async function loadAllOnOrderQty() {
-    if (onOrdMap) return onOrdMap;
-    onOrdMap = {};
-
-    // 1. Check STOCK tab Col I(8)=B/O, J(9)=ALLO, K(10)=U/P, L(11)=INV
-    const stockRows = await fetchSheetRows('STOCK');
-    stockRows.forEach(r => {
-      const c = r.c || [];
-      const val = (i) => (c[i] && (c[i].v !== null && c[i].v !== undefined ? c[i].v : c[i].f)) ?? '';
-      const pKey = clean(val(0) || val(12));
-      if (!pKey) return;
-      const totPipeline = num(val(8)) + num(val(9)) + num(val(10)) + num(val(11));
-      if (totPipeline > 0) {
-        onOrdMap[pKey] = Math.max(onOrdMap[pKey] || 0, totPipeline);
-      }
-    });
-
-    // 2. Check INVOICE, UNDER INVOICE, UNDER PICKING, DISPATCH tabs
-    const pipelineTabs = ['INVOICE', 'UNDER INVOICE', 'UNDER PICKING', 'DISPATCH'];
-    for (const tab of pipelineTabs) {
-      const rows = await fetchSheetRows(tab);
-      if (!rows.length) continue;
-
-      let partCol = -1, qtyCol = -1;
-      for (let rIdx = 0; rIdx < Math.min(3, rows.length); rIdx++) {
-        const c = rows[rIdx].c || [];
-        c.forEach((cell, idx) => {
-          const lbl = String((cell && (cell.v ?? cell.f)) || '').toUpperCase();
-          if (partCol === -1 && (lbl.includes('PART NO') || lbl.includes('PART NUMBER') || lbl === 'MATERIAL')) partCol = idx;
-          if (qtyCol === -1 && (lbl.includes('PICK QTY') || lbl.includes('INV QTY') || lbl.includes('DISPATCH') || lbl.includes('ORDER QTY') || lbl === 'QTY')) qtyCol = idx;
+  async function getPipe(){
+    if(cache) return cache;
+    cache = {};
+    for(const t of ['ALLOCATION','INVOICE','UNDER INVOICE','UNDER PICKING']){
+      try{
+        const u = `https://docs.google.com/spreadsheets/d/${SID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(t)}`;
+        const txt = await (await fetch(u)).text();
+        const j = JSON.parse(txt.replace(/^[^(]+\(/,'').replace(/\);?\s*$/,''));
+        (j.table.rows||[]).forEach(r=>{
+          const c=r.c||[], v=i=>(c[i]&&(c[i].v??c[i].f))??'';
+          let p='', q=0;
+          for(let i=0;i<c.length;i++){
+            const s=String(v(i)).trim().toUpperCase();
+            if(!p && (/^\d{5}[M\-][0-9A-Z\-]{2,}$/.test(s) || /^990[0-9A-Z\-]{5,}$/.test(s))) p=s;
+            if(!q && /^\d{1,5}(\.0+)?$/.test(String(v(i)).trim())){ const n=num(v(i)); if(n>0 && n<=50000) q=n; }
+          }
+          const k=clean(p);
+          if(k && q>0) cache[k]=(cache[k]||0)+q;
         });
-      }
-
-      rows.forEach((r, idx) => {
-        const c = r.c || [];
-        const val = (i) => (c[i] && (c[i].v !== null && c[i].v !== undefined ? c[i].v : c[i].f)) ?? '';
-        let pRaw = partCol !== -1 ? String(val(partCol)) : '';
-        let qVal = qtyCol !== -1 ? num(val(qtyCol)) : 0;
-
-        if (!pRaw) {
-          for (let i = 0; i < c.length; i++) {
-            const s = String(val(i)).trim().toUpperCase();
-            if (/^\d{5}[M\-][0-9A-Z\-]{3,}$/.test(s) || /^990[0-9A-Z\-]{6,}$/.test(s)) {
-              pRaw = s;
-              break;
-            }
-          }
-        }
-        if (!qVal && pRaw) {
-          for (let i = 0; i < c.length; i++) {
-            const rawStr = String(val(i)).trim();
-            if (/^\d{1,5}(\.0+)?$/.test(rawStr)) {
-              const n = num(rawStr);
-              if (n > 0 && n <= 50000) { qVal = n; break; }
-            }
-          }
-        }
-
-        const k = clean(pRaw);
-        if (k && qVal > 0 && !k.includes('PART')) {
-          onOrdMap[k] = (onOrdMap[k] || 0) + qVal;
-        }
-      });
+      }catch(e){}
     }
-
-    return onOrdMap;
+    return cache;
   }
 
-  async function updateReorderOnOrd() {
-    const map = await loadAllOnOrderQty();
-    if (!Object.keys(map).length) return;
-
-    document.querySelectorAll('div, span, td').forEach(el => {
-      if (el.dataset.onOrdSynced) return;
-      if ((el.textContent || '').trim().toUpperCase() === 'ON ORD') {
-        const box = el.parentElement;
-        if (!box) return;
-        const valEl = Array.from(box.children).find(ch => ch !== el && ch.textContent.trim() === '0');
-        const card = el.closest('[class*="card"], div[style*="border"]') || box.parentElement;
-        const partMatch = card ? card.textContent.match(/\b([0-9A-Z]{5,}[M\-][0-9A-Z\-]{2,})\b/i) : null;
-        if (valEl && partMatch) {
-          const dQty = map[clean(partMatch[1])];
-          if (dQty > 0) {
-            el.dataset.onOrdSynced = '1';
-            valEl.textContent = String(dQty);
-            valEl.style.color = '#0284c7';
-            valEl.style.fontWeight = '800';
-          }
+  async function paint(){
+    const m = await getPipe();
+    document.querySelectorAll('div,span,td').forEach(el=>{
+      if(el.dataset.d01) return;
+      if((el.textContent||'').trim().toUpperCase()==='ON ORD' && el.parentElement){
+        const z = Array.from(el.parentElement.children).find(ch=>ch!==el && ch.textContent.trim()==='0');
+        const card = el.closest('[class*="card"],div[style*="border"]') || el.parentElement.parentElement;
+        const match = card && card.textContent.match(/\b([0-9A-Z]{5,}[M\-][0-9A-Z\-]{2,})\b/i);
+        if(z && match && m[clean(match[1])]>0){
+          el.dataset.d01='1';
+          z.textContent = String(m[clean(match[1])]);
+          z.style.color = '#0284c7';
+          z.style.fontWeight = '800';
         }
       }
     });
   }
 
-  new MutationObserver(() => updateReorderOnOrd()).observe(document.body, { childList: true, subtree: true });
-  setTimeout(updateReorderOnOrd, 500);
+  new MutationObserver(()=>setTimeout(paint, 300)).observe(document.body,{childList:true,subtree:true});
+  setTimeout(paint, 600);
 })();
-
 </script>
-
-  </script>
-</body>
-</html>
+</body></html>
