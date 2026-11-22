@@ -1927,7 +1927,8 @@
       if(ordVal){
         const base = Math.abs(Number(ordVal.textContent.replace(/[^0-9-]/g,''))||0);
         const net = Math.max(0, base - q);
-        ordVal.textContent = net>0 ? '+'+net : '0';
+        ordVal.textContent = net>0 ? '+'+net : '0';      if(net === 0 && card) card.style.display = 'none';
+        
       }
     });
   }
