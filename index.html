@@ -1471,7 +1471,19 @@ if (personCode === 'UNDEFINED') personName = 'UNASSIGNED';
             const qVal = Math.round(Number(rightMost.str.trim()));
             if (qVal > 0 && qVal <= 20) qty = qVal;
           }
-          if (currentCat === 'BAT') stats[personCode].bat += qty;
+          if (currentCat === 'BAT') {
+  const hitAdv = /HM GIRISHKUMAR/i.test(up) ? 'HM GIRISHKUMAR'
+    : /SOMACHANDRAPPA/i.test(up) ? 'SOMACHANDRAPPA KM'
+    : /SHRIDHAR/i.test(up) ? 'SHRIDHAR M'
+    : null;
+  if (hitAdv) {
+    const k = Object.keys(stats).find(key => stats[key].name.toUpperCase().includes(hitAdv.split(' ')[0])) || personCode;
+    stats[k].bat += qty;
+  } else {
+    stats[personCode].bat += qty;
+  }
+}
+
           if (currentCat === 'TYRE') stats[personCode].tyre += qty;
 
           const regMatch = up.match(/\b([A-Z]{2}\d{2}[A-Z0-9]{1,6})\b/);
