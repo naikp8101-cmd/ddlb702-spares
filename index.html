@@ -1827,82 +1827,23 @@
 (function(){
   const SID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
   const clean = s => String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
-  const num = v => Number(String(v||'').replace(/[^0-9.-]/g,''))||0;
-  let cache = null;
-
-  async function getPipe(){
-    if(cache) return cache;
-    cache = {};
+  window.__ddlbGetPipe = async function(){
+    if(window.__ddlbPipeCache) return window.__ddlbPipeCache;
+    window.__ddlbPipeCache = {};
     for(const t of ['ALLOCATION','INVOICE','UNDER INVOICE','UNDER PICKING']){
       try{
         const u = `https://docs.google.com/spreadsheets/d/${SID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(t)}`;
-        const txt = await (await fetch(u)).text();
-        const j = JSON.parse(txt.replace(/^[^(]+\(/,'').replace(/\);?\s*$/,''));
+        const j = JSON.parse((await (await fetch(u)).text()).replace(/^[^(]+\(/,'').replace(/\);?\s*$/,''));
         (j.table.rows||[]).forEach(r=>{
           const c=r.c||[], v=i=>(c[i]&&(c[i].v??c[i].f))??'';
-          let p='', q=0;
-          for(let i=0;i<c.length;i++){
-            const s=String(v(i)).trim().toUpperCase();
-            if(!p && (/^\d{5}[M\-][0-9A-Z\-]{2,}$/.test(s) || /^990[0-9A-Z\-]{5,}$/.test(s))) p=s;
-            if(!q && /^\d{1,5}(\.0+)?$/.test(String(v(i)).trim())){ const n=num(v(i)); if(n>0 && n<=50000) q=n; }
-          }
-          const k=clean(p);
-          if(k && q>0) cache[k]=(cache[k]||0)+q;
+          const k=clean(v(0)||v(1)||v(2));
+          const q=Number(String(v(3)||v(4)||v(5)||0).replace(/[^0-9.-]/g,''))||0;
+          if(k && q>0) window.__ddlbPipeCache[k]=(window.__ddlbPipeCache[k]||0)+q;
         });
       }catch(e){}
     }
-    return cache;
-  }
-
-  async function paint(){
-    const m = await getPipe();
-    document.querySelectorAll('div,span,td').forEach(el=>{
-      if(el.dataset.d01) return;
-      if((el.textContent||'').trim().toUpperCase()==='ON ORD' && el.parentElement){
-        const z = Array.from(el.parentElement.children).find(ch=>ch!==el && ch.textContent.trim()==='0');
-        const card = el.closest('[class*="card"],div[style*="border"]') || el.parentElement.parentElement;
-        const match = card && card.textContent.match(/\b([0-9A-Z]{5,}[M\-][0-9A-Z\-]{2,})\b/i);
-        if(z && match && m[clean(match[1])]>0){
-          el.dataset.d01='1';
-          z.textContent = String(m[clean(match[1])]);
-          z.style.color = '#0284c7';
-          z.style.fontWeight = '800';
-        }
-      }
-    });
-  }
-
-  new MutationObserver(()=>setTimeout(paint, 300)).observe(document.body,{childList:true,subtree:true});
-  setTimeout(paint, 600);
-    function fixNetOrder(){
-    document.querySelectorAll('div,span,td').forEach(lbl=>{
-      if((lbl.textContent||'').trim().toUpperCase()!=='ORDER' || !lbl.parentElement) return;
-      const card = lbl.closest('[class*="card"],div[style*="border"]') || lbl.parentElement.parentElement;
-      if(!card) return;
-      let onOrd = 0;
-      card.querySelectorAll('div,span,td').forEach(s=>{
-        if((s.textContent||'').trim().toUpperCase()==='ON ORD' && s.parentElement){
-          const v = Array.from(s.parentElement.children).find(ch=>ch!==s);
-          if(v) onOrd = Number(String(v.textContent).replace(/[^0-9.-]/g,''))||0;
-        }
-      });
-      const ordVal = Array.from(lbl.parentElement.children).find(ch=>ch!==lbl);
-      if(!ordVal) return;
-      if(!ordVal.dataset.origOrd){
-        const n = Number(String(ordVal.textContent).replace(/[^0-9.-]/g,''))||0;
-        if(n>0) ordVal.dataset.origOrd = String(n);
-      }
-      const orig = Number(ordVal.dataset.origOrd)||0;
-      if(orig>0 && onOrd>0){
-        const net = Math.max(0, orig - onOrd);
-        ordVal.textContent = net>0 ? `+${net}` : '0';
-        ordVal.style.color = net>0 ? '#16a34a' : '#64748b';
-      }
-    });
-  }
-  const origPaint = paint;
-  paint = async function(){ await origPaint(); fixNetOrder(); };
-  
+    return window.__ddlbPipeCache;
+  };
 })();
 </script>
 </body></html>
