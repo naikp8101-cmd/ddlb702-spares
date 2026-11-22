@@ -1823,6 +1823,92 @@
   new MutationObserver(() => syncAdvisorStockBadges()).observe(document.body, { childList: true, subtree: true });
   setTimeout(syncAdvisorStockBadges, 600);
 })();
+   // Sync Dispatched / In-Transit qty into Reorder ON ORD when ON ORD is 0
+(function() {
+  const SHEET_ID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
+  let dispatchQtyMap = null;
+
+  const clean = (s) => String(s || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const num = (v) => Number(String(v || '').replace(/[^0-9.-]/g, '')) || 0;
+
+  async function loadDispatchMap() {
+    if (dispatchQtyMap) return dispatchQtyMap;
+    dispatchQtyMap = {};
+    try {
+      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=DISPATCH`;
+      const txt = await (await fetch(url)).text();
+      const json = JSON.parse(txt.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, ''));
+      const cols = (json.table.cols || []).map(c => String(c.label || '').toUpperCase());
+      const rows = json.table.rows || [];
+
+      rows.forEach(r => {
+        const c = r.c || [];
+        const val = (i) => (c[i] && (c[i].v !== null && c[i].v !== undefined ? c[i].v : c[i].f)) ?? '';
+        let partRaw = '';
+        let qtyVal = 0;
+
+        cols.forEach((lbl, idx) => {
+          if (!partRaw && (lbl.includes('PART') || lbl.includes('MAT'))) partRaw = String(val(idx));
+          if (!qtyVal && (lbl.includes('PICK') || lbl.includes('DISPATCH') || lbl.includes('QTY') || lbl.includes('INV'))) {
+            const n = num(val(idx));
+            if (n > 0 && n < 1000000) qtyVal = n;
+          }
+        });
+
+        if (!partRaw) {
+          for (let i = 0; i < c.length; i++) {
+            const s = String(val(i)).trim().toUpperCase();
+            if (/^[0-9A-Z]{5,}[M\-][0-9A-Z\-]{2,}$/.test(s) || /^09409|^990|^01550/.test(s)) {
+              partRaw = s;
+              break;
+            }
+          }
+        }
+        if (!qtyVal) {
+          for (let i = 0; i < c.length; i++) {
+            const n = num(val(i));
+            if (n > 0 && n < 100000) { qtyVal = n; break; }
+          }
+        }
+
+        const key = clean(partRaw);
+        if (key && qtyVal > 0) {
+          dispatchQtyMap[key] = (dispatchQtyMap[key] || 0) + qtyVal;
+        }
+      });
+    } catch (e) {}
+    return dispatchQtyMap;
+  }
+
+  async function updateReorderOnOrd() {
+    const map = await loadDispatchMap();
+    if (!Object.keys(map).length) return;
+
+    document.querySelectorAll('div, span, td').forEach(el => {
+      if (el.dataset.onOrdSynced) return;
+      const lbl = (el.textContent || '').trim().toUpperCase();
+      if (lbl === 'ON ORD') {
+        const parent = el.parentElement;
+        if (!parent) return;
+        const valEl = Array.from(parent.children).find(ch => ch !== el && ch.textContent.trim() === '0');
+        const card = el.closest('[class*="card"], div[style*="border"]') || parent.parentElement;
+        const partMatch = card ? card.textContent.match(/\b([0-9A-Z]{5,}[M\-][0-9A-Z\-]{2,})\b/i) : null;
+        if (valEl && partMatch) {
+          const dQty = map[clean(partMatch[1])];
+          if (dQty > 0) {
+            el.dataset.onOrdSynced = '1';
+            valEl.textContent = String(dQty);
+            valEl.style.color = '#0284c7';
+            valEl.style.fontWeight = '800';
+          }
+        }
+      }
+    });
+  }
+
+  new MutationObserver(() => updateReorderOnOrd()).observe(document.body, { childList: true, subtree: true });
+  setTimeout(updateReorderOnOrd, 600);
+})();
     
   </script>
 </body>
