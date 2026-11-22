@@ -1670,56 +1670,57 @@
 (function() {
   const origFetch = window.fetch;
   const SHEET_ID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
-
-  function getSheetIdFromExistingScripts() {
-    for (const sc of document.scripts) {
-      const txt = sc.textContent || '';
-      const m = txt.match(/\/d\/([a-zA-Z0-9-_]{20,})/);
-      if (m) return m[1];
-    }
-    return '';
-  }
+  let cachedStockRows = null;
 
   function cleanKey(v) {
     return String(v || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
   }
 
-  async function queryStockTab(q) {
-    const k = cleanKey(q);
-    if (!k) return [];
-    const sid = getSheetIdFromExistingScripts() || SHEET_ID;
-    if (!sid || sid.includes('REPLACE_WITH')) return [];
-
-    const url = `https://docs.google.com/spreadsheets/d/${sid}/gviz/tq?tqx=out:json&sheet=STOCK`;
+  async function loadStockTabRows() {
+    if (cachedStockRows) return cachedStockRows;
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=STOCK`;
     const r = await origFetch(url);
     const raw = await r.text();
     const jsonStr = raw.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, '');
     const parsed = JSON.parse(jsonStr);
     const rows = (parsed.table && parsed.table.rows) || [];
 
+    cachedStockRows = rows.map((rowObj, idx) => {
+      const c = rowObj.c || [];
+      const getVal = (i) => (c[i] && (c[i].v !== null && c[i].v !== undefined ? c[i].v : c[i].f)) ?? '';
+      const partNo = String(getVal(0) || getVal(12) || '').trim().toUpperCase();
+      const rootNo = String(getVal(1) || '').trim().toUpperCase();
+      const desc = String(getVal(2) || '').trim();
+      const mrp = Number(String(getVal(4)).replace(/[^0-9.-]/g, '')) || 0;
+      const stk = Number(String(getVal(5)).replace(/[^0-9.-]/g, '')) || 0;
+      const bin = String(getVal(6) || 'NOBIN').trim().toUpperCase() || 'NOBIN';
+      return {
+        row: idx + 2,
+        partNum: partNo,
+        rootNum: rootNo,
+        partName: desc ? desc + ' [STOCK]' : '[STOCK]',
+        bin: bin,
+        mrp: mrp,
+        stock: stk,
+        bo: Number(String(getVal(8)).replace(/[^0-9.-]/g, '')) || 0,
+        allo: Number(String(getVal(9)).replace(/[^0-9.-]/g, '')) || 0,
+        up: Number(String(getVal(10)).replace(/[^0-9.-]/g, '')) || 0,
+        inv: Number(String(getVal(11)).replace(/[^0-9.-]/g, '')) || 0,
+        shortExcess: getVal(13) !== '' ? getVal(13) : '-'
+      };
+    }).filter(r => r.partNum);
+    return cachedStockRows;
+  }
+
+  async function queryStockTab(q) {
+    const k = cleanKey(q);
+    if (!k) return [];
+    const rows = await loadStockTabRows();
     const out = [];
     for (let i = 0; i < rows.length; i++) {
-      const c = rows[i].c || [];
-      const partNo = (c[0] && (c[0].v ?? c[0].f)) ? String(c[0].v ?? c[0].f).trim().toUpperCase() : '';
-      if (!partNo) continue;
-      const rootNo = (c[1] && (c[1].v ?? c[1].f)) ? String(c[1].v ?? c[1].f).trim().toUpperCase() : '';
-      const desc = (c[2] && (c[2].v ?? c[2].f)) ? String(c[2].v ?? c[2].f).trim() : '';
-      const mrp = (c[4] && (c[4].v ?? c[4].f)) ? Number(c[4].v ?? c[4].f) || 0 : 0;
-      const stk = (c[5] && (c[5].v ?? c[5].f)) ? Number(c[5].v ?? c[5].f) || 0 : 0;
-      const bin = (c[6] && (c[6].v ?? c[6].f)) ? String(c[6].v ?? c[6].f).trim().toUpperCase() : 'NOBIN';
-
-      if (cleanKey(partNo).includes(k) || cleanKey(rootNo).includes(k) || desc.toUpperCase().includes(q.toUpperCase())) {
-        out.push({
-          row: i + 2,
-          partNum: partNo,
-          rootNum: rootNo,
-          partName: desc + ' [STOCK]',
-          bin: bin,
-          mrp: mrp,
-          stock: stk,
-          bo: 0, allo: 0, up: 0, inv: 0,
-          shortExcess: '-'
-        });
+      const sr = rows[i];
+      if (cleanKey(sr.partNum).includes(k) || cleanKey(sr.rootNum).includes(k) || sr.partName.toUpperCase().includes(q.toUpperCase())) {
+        out.push(sr);
       }
       if (out.length >= 60) break;
     }
@@ -1736,10 +1737,27 @@
         const q = (u.searchParams.get('q') || '').trim();
         const clone = resp.clone();
         const data = await clone.json();
-        if (q.length >= 2 && (!Array.isArray(data) || data.length === 0)) {
+
+        if (q.length >= 2) {
           const fallbackList = await queryStockTab(q);
-          if (fallbackList.length > 0) {
-            return new Response(JSON.stringify(fallbackList), {
+          if (!Array.isArray(data) || data.length === 0) {
+            if (fallbackList.length > 0) {
+              return new Response(JSON.stringify(fallbackList), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' }
+              });
+            }
+          } else if (fallbackList.length > 0) {
+            const stockMap = {};
+            fallbackList.forEach(item => { stockMap[cleanKey(item.partNum)] = item; });
+            const merged = data.map(item => {
+              const match = stockMap[cleanKey(item.partNum)];
+              if (match && (!item.stock || Number(item.stock) === 0) && match.stock > 0) {
+                return { ...item, stock: match.stock, bin: item.bin === 'NOBIN' ? match.bin : item.bin };
+              }
+              return item;
+            });
+            return new Response(JSON.stringify(merged), {
               status: 200,
               headers: { 'Content-Type': 'application/json' }
             });
@@ -1750,6 +1768,7 @@
     return resp;
   };
 })();
+
     
   </script>
 </body>
