@@ -1430,7 +1430,9 @@
           if (!/^JC\d+/.test(pCode) && !/^ISS\d+/.test(pCode) && !/^KA\d+/.test(pCode)) {
             currentPart = pCode;
             currentDesc = lineStr.replace(partMatch[0], '').replace(/Part\s*No\s*:?/i, '').trim();
-            if (currentPart.startsWith('33610')) currentCat = 'BAT';
+            const isRemoteBat = /(990J0M99921|CR\s*2032|CR\s*1620|REMOTE)/i.test(currentPart + ' ' + currentDesc);
+if (!isRemoteBat && (currentPart.startsWith('33610') || /\b(BATTERY|AMARON|EXIDE)\b/i.test(currentDesc))) currentCat = 'BAT';
+
             else if (currentPart.startsWith('43110')) currentCat = 'TYRE';
             else currentCat = '';
           }
