@@ -1927,123 +1927,28 @@
 })();
 
 
-    // Fix 1: Include live DOM IN STOCK / Bin / Stock in Share Status text
-// Fix 2: Subtract ON ORD from ORDER qty so green ORDER number is accurate
-(function() {
-  const num = (v) => Number(String(v || '').replace(/[^0-9.-]/g, '')) || 0;
-
-  function fixReorderNetOrder() {
-    document.querySelectorAll('div, span, td').forEach(lbl => {
-      if ((lbl.textContent || '').trim().toUpperCase() !== 'ORDER') return;
-      const box = lbl.parentElement;
-      if (!box) return;
-      const card = lbl.closest('[class*="card"], div[style*="border"]') || box.parentElement;
-      if (!card) return;
-
-      let stockVal = 0;
-      let onOrdVal = 0;
-
-      card.querySelectorAll('div, span, td').forEach(sub => {
-        if (!sub.parentElement) return;
-        const k = (sub.textContent || '').trim().toUpperCase();
-        const vEl = Array.from(sub.parentElement.children).find(ch => ch !== sub);
-        if (!vEl) return;
-        if (k === 'STOCK') stockVal = num(vEl.textContent);
-        if (k === 'ON ORD') onOrdVal = num(vEl.textContent);
+    <script>
+(function(){
+  const SID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
+  const clean = s => String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  window.__ddlbGetStock = async function(){
+    if(window.__ddlbStkMap) return window.__ddlbStkMap;
+    window.__ddlbStkMap = {};
+    try{
+      const u = `https://docs.google.com/spreadsheets/d/${SID}/gviz/tq?tqx=out:json&sheet=STOCK`;
+      const t = await (await fetch(u)).text();
+      const j = JSON.parse(t.replace(/^[^(]+\(/,'').replace(/\);?\s*$/,''));
+      (j.table.rows||[]).forEach(r=>{
+        const c=r.c||[], v=i=>(c[i]&&(c[i].v??c[i].f))??'';
+        const k=clean(v(0)||v(12)), s=Number(String(v(5)).replace(/[^0-9.-]/g,''))||0, b=String(v(6)||'NOBIN').trim();
+        if(k && s>0) window.__ddlbStkMap[k]={s,b};
       });
-
-      const ordValEl = Array.from(box.children).find(ch => ch !== lbl);
-      if (!ordValEl) return;
-
-      if (!ordValEl.dataset.baseOrd) {
-        const cur = num(ordValEl.textContent);
-        if (cur > 0) ordValEl.dataset.baseOrd = String(cur);
-      }
-
-      const baseOrd = num(ordValEl.dataset.baseOrd);
-      if (baseOrd > 0 && onOrdVal > 0) {
-        const netOrder = Math.max(0, baseOrd - onOrdVal);
-        ordValEl.textContent = netOrder > 0 ? `+${netOrder}` : '0';
-        ordValEl.style.color = netOrder > 0 ? '#16a34a' : '#64748b';
-        ordValEl.title = `Base ${baseOrd} - OnOrd ${onOrdVal} = ${netOrder}`;
-      }
-    });
-  }
-
-  function buildAdvisorMessage(card) {
-    const rawLines = (card.innerText || '')
-      .split('\n')
-      .map(s => s.trim())
-      .filter(Boolean);
-
-    const advisorName = rawLines[0] || 'Advisor';
-    const items = [];
-    let cur = null;
-
-    for (let i = 1; i < rawLines.length; i++) {
-      const line = rawLines[i];
-      if (line.includes('Share Status') || line.startsWith('+91') || line.includes('Part(s)')) continue;
-
-      const pMatch = line.match(/^(\d+)\.\s*([0-9A-Z\-]+)\s+(IN STOCK.*?|DISPATCHED|INVOICE|UNDER PICKING|ALLOCATED)$/i);
-      if (pMatch) {
-        if (cur) items.push(cur);
-        cur = {
-          idx: pMatch[1],
-          part: pMatch[2],
-          status: pMatch[3].trim(),
-          desc: '',
-          vehicle: '',
-          detail: ''
-        };
-        continue;
-      }
-
-      if (!cur) continue;
-      if (!cur.desc && !line.startsWith('Vehicle') && !line.includes('FIN:') && !line.includes('Order No:') && !line.includes('Bin Location:')) {
-        cur.desc = line;
-      } else if (line.toUpperCase().includes('VEHICLE') || line.toUpperCase().includes('/ JC')) {
-        cur.vehicle = line.replace(/^.*?Vehicle\s*\/?\s*JC\s*:?\s*/i, '').trim();
-      } else if (line.includes('FIN:') || line.includes('Order No:') || line.includes('Bin Location:')) {
-        cur.detail = line.replace(/^[^\wA-Z0-9]+/, '').trim();
-      }
-    }
-    if (cur) items.push(cur);
-
-    let msg = `*DDLB702 Spares - Order Update*\nHello *${advisorName}*, here is your spare parts status:\n`;
-    items.forEach(p => {
-      const veh = p.vehicle ? ` (${p.vehicle})` : '';
-      const desc = p.desc ? ` - ${p.desc}` : '';
-      msg += `\n${p.idx}. *${p.part}*${veh}${desc}\n   Status: *${p.status}*`;
-      if (p.detail) msg += `\n   Details: ${p.detail}`;
-    });
-    return msg.trim();
-  }
-
-  function wireShareStatus() {
-    document.querySelectorAll('button, a').forEach(btn => {
-      if (btn.dataset.shareFixed) return;
-      if (!(btn.textContent || '').toUpperCase().includes('SHARE STATUS')) return;
-      btn.dataset.shareFixed = '1';
-
-      btn.addEventListener('click', () => {
-        const card = btn.closest('[class*="card"], div[style*="border"]') || btn.parentElement?.parentElement;
-        if (!card) return;
-        const msg = buildAdvisorMessage(card);
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(msg).catch(() => {});
-        }
-      }, true);
-    });
-  }
-
-  function runFixes() {
-    fixReorderNetOrder();
-    wireShareStatus();
-  }
-
-  new MutationObserver(runFixes).observe(document.body, { childList: true, subtree: true });
-  setTimeout(runFixes, 500);
+    }catch(e){}
+    return window.__ddlbStkMap;
+  };
 })();
+</script>
+
 
 
     
