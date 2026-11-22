@@ -1927,6 +1927,117 @@
 })();
 
 
+    // Updates 1, 3, and 5: Reorder net-order calc, Advisor status summary helper, and Orders/Co-Dealer status filter chips
+(function() {
+  const num = (v) => Number(String(v || '').replace(/[^0-9.-]/g, '')) || 0;
+
+  // 1. Adjust Reorder ORDER qty when ON ORD increases
+  function adjustReorderOrderQty() {
+    document.querySelectorAll('div, span, td').forEach(lbl => {
+      if ((lbl.textContent || '').trim().toUpperCase() !== 'ORDER') return;
+      const box = lbl.parentElement;
+      if (!box || box.dataset.ordAdjusted) return;
+      const card = lbl.closest('[class*="card"], div[style*="border"]') || box.parentElement;
+      if (!card) return;
+
+      let onOrdVal = 0;
+      card.querySelectorAll('div, span, td').forEach(sub => {
+        if ((sub.textContent || '').trim().toUpperCase() === 'ON ORD' && sub.parentElement) {
+          const vEl = Array.from(sub.parentElement.children).find(ch => ch !== sub);
+          if (vEl) onOrdVal = num(vEl.textContent);
+        }
+      });
+
+      const ordValEl = Array.from(box.children).find(ch => ch !== lbl);
+      if (!ordValEl || onOrdVal <= 0) return;
+
+      const rawOrd = num(ordValEl.textContent);
+      if (rawOrd > 0) {
+        box.dataset.ordAdjusted = '1';
+        const netOrd = Math.max(0, rawOrd - onOrdVal);
+        ordValEl.textContent = netOrd > 0 ? `+${netOrd}` : '0';
+        ordValEl.style.color = netOrd > 0 ? '#16a34a' : '#64748b';
+        ordValEl.title = `Suggested ${rawOrd} - OnOrd ${onOrdVal}`;
+      }
+    });
+  }
+
+  // 2. Enhance Share Status copy/share text in Advisors tab with stock/dispatch details
+  function enhanceAdvisorShareButtons() {
+    document.querySelectorAll('button, a').forEach(btn => {
+      if (btn.dataset.shareEnhanced) return;
+      const txt = (btn.textContent || '').toUpperCase();
+      if (!txt.includes('SHARE STATUS')) return;
+      btn.dataset.shareEnhanced = '1';
+
+      btn.addEventListener('click', () => {
+        const card = btn.closest('[class*="card"], div[style*="border"]') || btn.parentElement?.parentElement;
+        if (!card) return;
+        const cleanLines = (card.innerText || '')
+          .split('\n')
+          .map(s => s.trim())
+          .filter(s => s && !s.includes('Share Status'));
+        const summary = `📋 *DDLB702 Spares - Advisor Status*\n` + cleanLines.join('\n');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(summary).catch(() => {});
+        }
+      }, true);
+    });
+  }
+
+  // 3. Add quick status filter chips on Orders / Co-Dealer views
+  function injectStatusFilterChips() {
+    const statuses = ['ALL', 'DISPATCHED', 'INVOICE', 'UNDER PICKING'];
+    document.querySelectorAll('div, section').forEach(container => {
+      if (container.dataset.statusChipsAdded) return;
+      const textUp = (container.innerText || '').toUpperCase();
+      const hasOrderItems = (textUp.includes('DISPATCHED') || textUp.includes('INVOICE') || textUp.includes('UNDER PICKING')) && textUp.includes('TRACK');
+      if (!hasOrderItems || container.querySelector('.ddlb-status-chips')) return;
+
+      const bar = document.createElement('div');
+      bar.className = 'ddlb-status-chips';
+      bar.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;';
+
+      statuses.forEach(st => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.textContent = st;
+        chip.style.cssText = 'padding:5px 10px;border-radius:999px;border:1px solid #cbd5e1;background:#f8fafc;color:#0f172a;font-size:11px;font-weight:700;cursor:pointer;';
+        chip.addEventListener('click', () => {
+          bar.querySelectorAll('button').forEach(b => {
+            b.style.background = '#f8fafc';
+            b.style.color = '#0f172a';
+            b.style.borderColor = '#cbd5e1';
+          });
+          chip.style.background = '#2563eb';
+          chip.style.color = '#ffffff';
+          chip.style.borderColor = '#2563eb';
+
+          const items = container.querySelectorAll('[class*="card"], div[style*="border"]');
+          items.forEach(item => {
+            if (item.contains(bar) || item.querySelector('.ddlb-status-chips')) return;
+            const iText = (item.innerText || '').toUpperCase();
+            if (!iText.includes('DISPATCHED') && !iText.includes('INVOICE') && !iText.includes('UNDER PICKING')) return;
+            item.style.display = (st === 'ALL' || iText.includes(st)) ? '' : 'none';
+          });
+        });
+        bar.appendChild(chip);
+      });
+
+      container.dataset.statusChipsAdded = '1';
+      container.prepend(bar);
+    });
+  }
+
+  function runEnhancements() {
+    adjustReorderOrderQty();
+    enhanceAdvisorShareButtons();
+    injectStatusFilterChips();
+  }
+
+  new MutationObserver(runEnhancements).observe(document.body, { childList: true, subtree: true });
+  setTimeout(runEnhancements, 600);
+})();
     
   </script>
 </body>
