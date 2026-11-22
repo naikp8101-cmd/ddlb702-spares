@@ -1827,23 +1827,47 @@
 (function(){
   const SID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
   const clean = s => String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
-  window.__ddlbGetPipe = async function(){
-    if(window.__ddlbPipeCache) return window.__ddlbPipeCache;
-    window.__ddlbPipeCache = {};
+  let pipeCache = null;
+
+  async function loadPipe(){
+    if(pipeCache) return pipeCache;
+    pipeCache = {};
     for(const t of ['ALLOCATION','INVOICE','UNDER INVOICE','UNDER PICKING']){
       try{
         const u = `https://docs.google.com/spreadsheets/d/${SID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(t)}`;
-        const j = JSON.parse((await (await fetch(u)).text()).replace(/^[^(]+\(/,'').replace(/\);?\s*$/,''));
+        const txt = await (await fetch(u)).text();
+        const j = JSON.parse(txt.replace(/^[^(]+\(/,'').replace(/\);?\s*$/,''));
         (j.table.rows||[]).forEach(r=>{
           const c=r.c||[], v=i=>(c[i]&&(c[i].v??c[i].f))??'';
           const k=clean(v(0)||v(1)||v(2));
           const q=Number(String(v(3)||v(4)||v(5)||0).replace(/[^0-9.-]/g,''))||0;
-          if(k && q>0) window.__ddlbPipeCache[k]=(window.__ddlbPipeCache[k]||0)+q;
+          if(k && q>0) pipeCache[k]=(pipeCache[k]||0)+q;
         });
       }catch(e){}
     }
-    return window.__ddlbPipeCache;
-  };
+    return pipeCache;
+  }
+
+  async function syncOnOrd(){
+    const m = await loadPipe();
+    document.querySelectorAll('div,span,td').forEach(el=>{
+      if(el.dataset.sDone) return;
+      if((el.textContent||'').trim().toUpperCase()==='ON ORD' && el.parentElement){
+        const z = Array.from(el.parentElement.children).find(ch=>ch!==el && ch.textContent.trim()==='0');
+        const card = el.closest('[class*="card"],div[style*="border"]') || el.parentElement.parentElement;
+        const match = card && card.textContent.match(/\b([0-9A-Z]{5,}[M\-][0-9A-Z\-]{2,})\b/i);
+        if(z && match && m[clean(match[1])]>0){
+          el.dataset.sDone='1';
+          z.textContent = String(m[clean(match[1])]);
+          z.style.color = '#0284c7';
+          z.style.fontWeight = '800';
+        }
+      }
+    });
+  }
+
+  new MutationObserver(()=>setTimeout(syncOnOrd, 350)).observe(document.body,{childList:true,subtree:true});
+  setTimeout(syncOnOrd, 600);
 })();
 </script>
 </body></html>
