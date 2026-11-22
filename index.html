@@ -1845,7 +1845,7 @@
       else if(ln.toUpperCase().includes('VEHICLE') || ln.toUpperCase().includes('/ JC')) cur.v = ln.replace(/^.*?Vehicle\s*\/?\s*JC\s*:?\s*/i,'').trim();
       else if(ln.includes('FIN:') || ln.includes('Order No:') || ln.includes('Bin Location:')) cur.det = ln.replace(/^[^\wA-Z0-9]+/,'').trim();
     }
-    if(cur) parts.push(cur);  parts.forEach(x=>{
+    if(cur) parts.push(cur);    parts.forEach(x=>{
     const hit = Array.from(card.querySelectorAll('div,span,button')).find(el=>{
       if(!/IN STOCK\s*\(/i.test(el.textContent)) return false;
       let p = el.parentElement;
@@ -1857,6 +1857,7 @@
     });
     if(hit) x.st = hit.textContent.trim();
   });
+    
     
     let out = `*DDLB702 Spares - Order Update*\nHello *${name}*, here is your spare parts status:\n`;
     parts.forEach(x=>{
