@@ -1874,6 +1874,35 @@
 
   new MutationObserver(()=>setTimeout(paint, 300)).observe(document.body,{childList:true,subtree:true});
   setTimeout(paint, 600);
+    function fixNetOrder(){
+    document.querySelectorAll('div,span,td').forEach(lbl=>{
+      if((lbl.textContent||'').trim().toUpperCase()!=='ORDER' || !lbl.parentElement) return;
+      const card = lbl.closest('[class*="card"],div[style*="border"]') || lbl.parentElement.parentElement;
+      if(!card) return;
+      let onOrd = 0;
+      card.querySelectorAll('div,span,td').forEach(s=>{
+        if((s.textContent||'').trim().toUpperCase()==='ON ORD' && s.parentElement){
+          const v = Array.from(s.parentElement.children).find(ch=>ch!==s);
+          if(v) onOrd = Number(String(v.textContent).replace(/[^0-9.-]/g,''))||0;
+        }
+      });
+      const ordVal = Array.from(lbl.parentElement.children).find(ch=>ch!==lbl);
+      if(!ordVal) return;
+      if(!ordVal.dataset.origOrd){
+        const n = Number(String(ordVal.textContent).replace(/[^0-9.-]/g,''))||0;
+        if(n>0) ordVal.dataset.origOrd = String(n);
+      }
+      const orig = Number(ordVal.dataset.origOrd)||0;
+      if(orig>0 && onOrd>0){
+        const net = Math.max(0, orig - onOrd);
+        ordVal.textContent = net>0 ? `+${net}` : '0';
+        ordVal.style.color = net>0 ? '#16a34a' : '#64748b';
+      }
+    });
+  }
+  const origPaint = paint;
+  paint = async function(){ await origPaint(); fixNetOrder(); };
+  
 })();
 </script>
 </body></html>
