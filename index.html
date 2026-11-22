@@ -1769,6 +1769,60 @@
   };
 })();
 
+    // Advisor tab status override when part has stock in STOCK sheet
+(function() {
+  const SHEET_ID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
+  let stockLookup = null;
+
+  const clean = (s) => String(s || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  async function getStockLookup() {
+    if (stockLookup) return stockLookup;
+    stockLookup = {};
+    try {
+      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=STOCK`;
+      const txt = await (await fetch(url)).text();
+      const json = JSON.parse(txt.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, ''));
+      (json.table.rows || []).forEach(r => {
+        const c = r.c || [];
+        const val = (i) => (c[i] && (c[i].v ?? c[i].f)) ?? '';
+        const pKey = clean(val(0) || val(12));
+        const stk = Number(String(val(5)).replace(/[^0-9.-]/g, '')) || 0;
+        const bin = String(val(6) || 'NOBIN').trim().toUpperCase();
+        if (pKey && stk > 0) stockLookup[pKey] = { stk, bin };
+      });
+    } catch (e) {}
+    return stockLookup;
+  }
+
+  async function syncAdvisorStockBadges() {
+    const advTab = document.getElementById('tab-advisors') || document.querySelector('[id*="advisor"]');
+    if (!advTab) return;
+    const map = await getStockLookup();
+    if (!Object.keys(map).length) return;
+
+    advTab.querySelectorAll('div, span, button').forEach(el => {
+      if (el.dataset.stkSynced) return;
+      const t = (el.textContent || '').trim().toUpperCase();
+      if ((t === 'INVOICE' || t.includes('INVOICE')) && el.children.length === 0) {
+        const card = el.closest('[class*="card"], div[style*="border"]') || el.parentElement;
+        const cardText = card ? card.textContent : '';
+        const m = cardText.match(/\b([0-9A-Z]{5,}[M\-][0-9A-Z\-]{3,})\b/i);
+        const info = m ? map[clean(m[1])] : null;
+        if (info) {
+          el.dataset.stkSynced = '1';
+          el.textContent = `IN STOCK (${info.stk} NOS · ${info.bin})`;
+          el.style.background = '#dcfce7';
+          el.style.color = '#166534';
+          el.style.fontWeight = '700';
+        }
+      }
+    });
+  }
+
+  new MutationObserver(() => syncAdvisorStockBadges()).observe(document.body, { childList: true, subtree: true });
+  setTimeout(syncAdvisorStockBadges, 600);
+})();
     
   </script>
 </body>
