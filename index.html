@@ -1390,7 +1390,9 @@
     const buf = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
     let currentPart = '', currentDesc = '', currentCat = '';
-
+const jcMap = {};
+const batSeenIss = new Set();
+    
     for (let p = 1; p <= pdf.numPages; p++) {
       const page = await pdf.getPage(p);
       const content = await page.getTextContent();
@@ -1452,6 +1454,10 @@ if (!isRemoteBat && (currentPart.startsWith('33610') || /\b(BATTERY|AMARON|EXIDE
             const candidate = lineItems[codeIdx + 1].str.trim().toUpperCase();
             if (candidate && !/^JC\d+/.test(candidate) && candidate !== '====') {
               personName = candidate;
+              if (personCode && personCode !== 'UNKNOWN' && personCode !== 'UNDEFINED') {
+  jcMap[jcNo] = { code: personCode, name: personName };
+              }
+              
     if (!window.__jcPersonMap) window.__jcPersonMap = {};
 if (personCode && personCode !== 'UNKNOWN') window.__jcPersonMap[jcNo] = { code: personCode, name: personName };
             }
@@ -1466,20 +1472,21 @@ if (personCode === 'UNDEFINED') personName = 'UNASSIGNED';
         }
         stats[personCode].jcs.add(jcNo);
 
-        if (currentCat === 'BAT' || currentCat === 'TYRE') {
-          let qty = 1;
-          const rightMost = lineItems[lineItems.length - 1];
-          if (rightMost && /^\d{1,2}(\.0+)?$/.test(rightMost.str.trim())) {
-            const qVal = Math.round(Number(rightMost.str.trim()));
-            if (qVal > 0 && qVal <= 20) qty = qVal;
-          }
-          if (currentCat === 'BAT') {
-  const mapped = (window.__jcPersonMap && window.__jcPersonMap[jcNo]) || { code: personCode, name: personName };
-  const targetCode = mapped.code || personCode;
-  if (!stats[targetCode]) stats[targetCode] = { code: targetCode, name: mapped.name || targetCode, jcs: new Set(), bat: 0, tyre: 0 };
-  if (mapped.name && stats[targetCode].name === targetCode) stats[targetCode].name = mapped.name;
-  stats[targetCode].bat += qty;
-  stats[targetCode].jcs.add(jcNo);
+        if (currentCat === 'BAT') {
+  const issMatch = lineStr.match(/\b(ISS\d+)\b/);
+  const uniqKey = (issMatch ? issMatch[1] : jcNo) + '_' + currentPart + '_' + jcNo;
+  if (!batSeenIss.has(uniqKey)) {
+    batSeenIss.add(uniqKey);
+    const mapped = jcMap[jcNo] || { code: personCode, name: personName };
+    const bCode = mapped.code || personCode;
+    const bName = mapped.name || personName;
+    if (!stats[bCode]) {
+      stats[bCode] = { code: bCode, name: bName, jcs: new Set(), bat: 0, tyre: 0 };
+    }
+    if (bName && stats[bCode].name === bCode) stats[bCode].name = bName;
+    stats[bCode].bat += qty;
+    stats[bCode].jcs.add(jcNo);
+  }
 }
 
 
