@@ -1666,6 +1666,90 @@
 })();
   
 
+    // Fallback to STOCK tab when OLD,NEW PART has no match or 0 stock
+(function() {
+  const origFetch = window.fetch;
+  const SHEET_ID = '1qY8a_REPLACE_WITH_YOUR_SPREADSHEET_ID_IF_NEEDED';
+
+  function getSheetIdFromExistingScripts() {
+    for (const sc of document.scripts) {
+      const txt = sc.textContent || '';
+      const m = txt.match(/\/d\/([a-zA-Z0-9-_]{20,})/);
+      if (m) return m[1];
+    }
+    return '';
+  }
+
+  function cleanKey(v) {
+    return String(v || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+
+  async function queryStockTab(q) {
+    const k = cleanKey(q);
+    if (!k) return [];
+    const sid = getSheetIdFromExistingScripts() || SHEET_ID;
+    if (!sid || sid.includes('REPLACE_WITH')) return [];
+
+    const url = `https://docs.google.com/spreadsheets/d/${sid}/gviz/tq?tqx=out:json&sheet=STOCK`;
+    const r = await origFetch(url);
+    const raw = await r.text();
+    const jsonStr = raw.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, '');
+    const parsed = JSON.parse(jsonStr);
+    const rows = (parsed.table && parsed.table.rows) || [];
+
+    const out = [];
+    for (let i = 0; i < rows.length; i++) {
+      const c = rows[i].c || [];
+      const partNo = (c[0] && (c[0].v ?? c[0].f)) ? String(c[0].v ?? c[0].f).trim().toUpperCase() : '';
+      if (!partNo) continue;
+      const rootNo = (c[1] && (c[1].v ?? c[1].f)) ? String(c[1].v ?? c[1].f).trim().toUpperCase() : '';
+      const desc = (c[2] && (c[2].v ?? c[2].f)) ? String(c[2].v ?? c[2].f).trim() : '';
+      const mrp = (c[4] && (c[4].v ?? c[4].f)) ? Number(c[4].v ?? c[4].f) || 0 : 0;
+      const stk = (c[5] && (c[5].v ?? c[5].f)) ? Number(c[5].v ?? c[5].f) || 0 : 0;
+      const bin = (c[6] && (c[6].v ?? c[6].f)) ? String(c[6].v ?? c[6].f).trim().toUpperCase() : 'NOBIN';
+
+      if (cleanKey(partNo).includes(k) || cleanKey(rootNo).includes(k) || desc.toUpperCase().includes(q.toUpperCase())) {
+        out.push({
+          row: i + 2,
+          partNum: partNo,
+          rootNum: rootNo,
+          partName: desc + ' [STOCK]',
+          bin: bin,
+          mrp: mrp,
+          stock: stk,
+          bo: 0, allo: 0, up: 0, inv: 0,
+          shortExcess: '-'
+        });
+      }
+      if (out.length >= 60) break;
+    }
+    return out;
+  }
+
+  window.fetch = async function(resource, init) {
+    const urlStr = typeof resource === 'string' ? resource : (resource && resource.url) || '';
+    const resp = await origFetch.apply(this, arguments);
+
+    if (urlStr.includes('script.google.com') && urlStr.includes('action=search')) {
+      try {
+        const u = new URL(urlStr);
+        const q = (u.searchParams.get('q') || '').trim();
+        const clone = resp.clone();
+        const data = await clone.json();
+        if (q.length >= 2 && (!Array.isArray(data) || data.length === 0)) {
+          const fallbackList = await queryStockTab(q);
+          if (fallbackList.length > 0) {
+            return new Response(JSON.stringify(fallbackList), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+        }
+      } catch (e) {}
+    }
+    return resp;
+  };
+})();
     
   </script>
 </body>
