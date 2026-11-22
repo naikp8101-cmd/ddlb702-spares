@@ -1444,34 +1444,8 @@ if (!isRemoteBat && (currentPart.startsWith('33610') || /\b(BATTERY|AMARON|EXIDE
 
         const codeMatch = up.match(/\b(SA\d+|WM\d*|TECH\d+|DNT\d+|UNDEFINED)\b/);
         const personCode = codeMatch ? codeMatch[1] : 'UNKNOWN';
+if (currentCat === 'BAT') { const c = /HM GIRISHKUMAR|\bSA1\b/i.test(up) ? 'SA1' : /SOMACHANDRAPPA|\bWM\b/i.test(up) ? 'WM' : /SHRIDHAR|\bSA19\b/i.test(up) ? 'SA19' : personCode; if (!stats[c]) stats[c] = { code: c, name: c, jcs: new Set(), bat: 0, tyre: 0 }; stats[c].bat += qty; stats[c].jcs.add(jcNo); }
 
-        let personName = personCode;
-        if (codeMatch) {
-          const codeIdx = lineItems.findIndex(it => it.str.toUpperCase().trim() === personCode);
-          if (codeIdx !== -1 && lineItems[codeIdx + 1]) {
-            const candidate = lineItems[codeIdx + 1].str.trim().toUpperCase();
-            if (candidate && !/^JC\d+/.test(candidate) && candidate !== '====') {
-              personName = candidate;
-            }
-          }
-        }
-if (personCode === 'UNDEFINED') personName = 'UNASSIGNED';
-        
-        if (!stats[personCode]) {
-          stats[personCode] = { code: personCode, name: personName, jcs: new Set(), bat: 0, tyre: 0 };
-        } else if (stats[personCode].name === personCode && personName !== personCode) {
-          stats[personCode].name = personName;
-        }
-        stats[personCode].jcs.add(jcNo);
-
-        if (currentCat === 'BAT' || currentCat === 'TYRE') {
-          let qty = 1;
-          const rightMost = lineItems[lineItems.length - 1];
-          if (rightMost && /^\d{1,2}(\.0+)?$/.test(rightMost.str.trim())) {
-            const qVal = Math.round(Number(rightMost.str.trim()));
-            if (qVal > 0 && qVal <= 20) qty = qVal;
-          }
-          if (currentCat === 'BAT') { const advHit = up.match(/\b(SA1|SA7|SA11|SA19|WM2|WM)\b/); const targetCode = advHit ? advHit[1] : personCode; if (!stats[targetCode]) stats[targetCode] = { code: targetCode, name: targetCode, jcs: new Set(), bat: 0, tyre: 0 }; stats[targetCode].bat += qty; stats[targetCode].jcs.add(jcNo); }
 
           if (currentCat === 'TYRE') stats[personCode].tyre += qty;
 
