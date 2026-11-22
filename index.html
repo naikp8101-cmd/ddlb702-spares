@@ -1444,7 +1444,8 @@ if (!isRemoteBat && (currentPart.startsWith('33610') || /\b(BATTERY|AMARON|EXIDE
 
         const codeMatch = up.match(/\b(SA\d+|WM\d*|TECH\d+|DNT\d+|UNDEFINED)\b/);
         const personCode = codeMatch ? codeMatch[1] : 'UNKNOWN';
-if (currentCat === 'BAT') { const c = /HM GIRISHKUMAR|\bSA1\b/i.test(up) ? 'SA1' : /SOMACHANDRAPPA|\bWM\b/i.test(up) ? 'WM' : /SHRIDHAR|\bSA19\b/i.test(up) ? 'SA19' : personCode; if (!stats[c]) stats[c] = { code: c, name: c, jcs: new Set(), bat: 0, tyre: 0 }; stats[c].bat += qty; stats[c].jcs.add(jcNo); }
+const c = /HM GIRISHKUMAR|\bSA1\b/i.test(up) ? 'SA1' : /SOMACHANDRAPPA|\bWM\b/i.test(up) ? 'WM' : /SHRIDHAR|\bSA19\b/i.test(up) ? 'SA19' : personCode;
+if (currentCat === 'BAT') { if (!stats[c]) stats[c] = { code: c, name: c, jcs: new Set(), bat: 0, tyre: 0 }; stats[c].bat += qty; stats[c].jcs.add(jcNo); }
 
 
           if (currentCat === 'TYRE') stats[personCode].tyre += qty;
