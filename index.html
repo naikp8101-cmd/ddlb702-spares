@@ -1927,48 +1927,70 @@
 })();
 
 
-    // Clean Reorder ORDER display & Advisor Share Status format (Orders status chips removed)
+    // Fix 1: Include live DOM IN STOCK / Bin / Stock in Share Status text
+// Fix 2: Subtract ON ORD from ORDER qty so green ORDER number is accurate
 (function() {
-  // Remove any previously injected status filter chips and reset adjusted order badges
-  document.querySelectorAll('.ddlb-status-chips').forEach(el => el.remove());
+  const num = (v) => Number(String(v || '').replace(/[^0-9.-]/g, '')) || 0;
 
-  function restoreAndKeepOrderQty() {
+  function fixReorderNetOrder() {
     document.querySelectorAll('div, span, td').forEach(lbl => {
       if ((lbl.textContent || '').trim().toUpperCase() !== 'ORDER') return;
       const box = lbl.parentElement;
       if (!box) return;
+      const card = lbl.closest('[class*="card"], div[style*="border"]') || box.parentElement;
+      if (!card) return;
+
+      let stockVal = 0;
+      let onOrdVal = 0;
+
+      card.querySelectorAll('div, span, td').forEach(sub => {
+        if (!sub.parentElement) return;
+        const k = (sub.textContent || '').trim().toUpperCase();
+        const vEl = Array.from(sub.parentElement.children).find(ch => ch !== sub);
+        if (!vEl) return;
+        if (k === 'STOCK') stockVal = num(vEl.textContent);
+        if (k === 'ON ORD') onOrdVal = num(vEl.textContent);
+      });
+
       const ordValEl = Array.from(box.children).find(ch => ch !== lbl);
-      if (ordValEl && ordValEl.title && ordValEl.title.startsWith('Suggested ')) {
-        const origNum = ordValEl.title.split(' ')[1];
-        if (origNum && ordValEl.textContent.trim() === '0') {
-          ordValEl.textContent = `+${origNum}`;
-          ordValEl.style.color = '#16a34a';
-        }
+      if (!ordValEl) return;
+
+      if (!ordValEl.dataset.baseOrd) {
+        const cur = num(ordValEl.textContent);
+        if (cur > 0) ordValEl.dataset.baseOrd = String(cur);
+      }
+
+      const baseOrd = num(ordValEl.dataset.baseOrd);
+      if (baseOrd > 0 && onOrdVal > 0) {
+        const netOrder = Math.max(0, baseOrd - onOrdVal);
+        ordValEl.textContent = netOrder > 0 ? `+${netOrder}` : '0';
+        ordValEl.style.color = netOrder > 0 ? '#16a34a' : '#64748b';
+        ordValEl.title = `Base ${baseOrd} - OnOrd ${onOrdVal} = ${netOrder}`;
       }
     });
   }
 
   function buildAdvisorMessage(card) {
-    const lines = (card.innerText || '')
+    const rawLines = (card.innerText || '')
       .split('\n')
       .map(s => s.trim())
       .filter(Boolean);
 
-    const advisorName = lines[0] || 'Advisor';
-    const partBlocks = [];
-    let current = null;
+    const advisorName = rawLines[0] || 'Advisor';
+    const items = [];
+    let cur = null;
 
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i];
+    for (let i = 1; i < rawLines.length; i++) {
+      const line = rawLines[i];
       if (line.includes('Share Status') || line.startsWith('+91') || line.includes('Part(s)')) continue;
 
-      const partMatch = line.match(/^(\d+)\.\s*([0-9A-Z\-]+)\s+(IN STOCK.*?|DISPATCHED|INVOICE|UNDER PICKING|ALLOCATED)$/i);
-      if (partMatch) {
-        if (current) partBlocks.push(current);
-        current = {
-          idx: partMatch[1],
-          part: partMatch[2],
-          status: partMatch[3].trim(),
+      const pMatch = line.match(/^(\d+)\.\s*([0-9A-Z\-]+)\s+(IN STOCK.*?|DISPATCHED|INVOICE|UNDER PICKING|ALLOCATED)$/i);
+      if (pMatch) {
+        if (cur) items.push(cur);
+        cur = {
+          idx: pMatch[1],
+          part: pMatch[2],
+          status: pMatch[3].trim(),
           desc: '',
           vehicle: '',
           detail: ''
@@ -1976,53 +1998,53 @@
         continue;
       }
 
-      if (!current) continue;
-      if (!current.desc && !line.startsWith('Vehicle') && !line.includes('FIN:') && !line.includes('Order No:') && !line.includes('Bin Location:')) {
-        current.desc = line;
+      if (!cur) continue;
+      if (!cur.desc && !line.startsWith('Vehicle') && !line.includes('FIN:') && !line.includes('Order No:') && !line.includes('Bin Location:')) {
+        cur.desc = line;
       } else if (line.toUpperCase().includes('VEHICLE') || line.toUpperCase().includes('/ JC')) {
-        current.vehicle = line.replace(/^.*?Vehicle\s*\/?\s*JC\s*:?\s*/i, '').trim();
+        cur.vehicle = line.replace(/^.*?Vehicle\s*\/?\s*JC\s*:?\s*/i, '').trim();
       } else if (line.includes('FIN:') || line.includes('Order No:') || line.includes('Bin Location:')) {
-        current.detail = line.replace(/^[^\wA-Z0-9]+/, '').trim();
+        cur.detail = line.replace(/^[^\wA-Z0-9]+/, '').trim();
       }
     }
-    if (current) partBlocks.push(current);
+    if (cur) items.push(cur);
 
     let msg = `*DDLB702 Spares - Order Update*\nHello *${advisorName}*, here is your spare parts status:\n`;
-    partBlocks.forEach(p => {
-      const vehPart = p.vehicle ? ` (${p.vehicle})` : '';
-      const descPart = p.desc ? ` - ${p.desc}` : '';
-      msg += `\n${p.idx}. *${p.part}*${vehPart}${descPart}\n   Status: *${p.status}*`;
+    items.forEach(p => {
+      const veh = p.vehicle ? ` (${p.vehicle})` : '';
+      const desc = p.desc ? ` - ${p.desc}` : '';
+      msg += `\n${p.idx}. *${p.part}*${veh}${desc}\n   Status: *${p.status}*`;
       if (p.detail) msg += `\n   Details: ${p.detail}`;
     });
     return msg.trim();
   }
 
-  function enhanceAdvisorShareButtons() {
+  function wireShareStatus() {
     document.querySelectorAll('button, a').forEach(btn => {
-      if (btn.dataset.shareCleanReady) return;
-      const txt = (btn.textContent || '').toUpperCase();
-      if (!txt.includes('SHARE STATUS')) return;
-      btn.dataset.shareCleanReady = '1';
+      if (btn.dataset.shareFixed) return;
+      if (!(btn.textContent || '').toUpperCase().includes('SHARE STATUS')) return;
+      btn.dataset.shareFixed = '1';
 
       btn.addEventListener('click', () => {
         const card = btn.closest('[class*="card"], div[style*="border"]') || btn.parentElement?.parentElement;
         if (!card) return;
-        const formatted = buildAdvisorMessage(card);
+        const msg = buildAdvisorMessage(card);
         if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(formatted).catch(() => {});
+          navigator.clipboard.writeText(msg).catch(() => {});
         }
       }, true);
     });
   }
 
-  function runCleanUpdates() {
-    restoreAndKeepOrderQty();
-    enhanceAdvisorShareButtons();
+  function runFixes() {
+    fixReorderNetOrder();
+    wireShareStatus();
   }
 
-  new MutationObserver(runCleanUpdates).observe(document.body, { childList: true, subtree: true });
-  setTimeout(runCleanUpdates, 500);
+  new MutationObserver(runFixes).observe(document.body, { childList: true, subtree: true });
+  setTimeout(runFixes, 500);
 })();
+
 
     
   </script>
