@@ -1873,5 +1873,72 @@
     if(msg && navigator.clipboard?.writeText) navigator.clipboard.writeText(msg).catch(()=>{});
   }, true);
 })();
+ (function(){
+  const SID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
+  const clean = s => String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  let pipe = null;
+
+  async function loadAllPipe(){
+    if(pipe) return pipe;
+    pipe = {};
+    const sheets = ['ALLOCATION','INVOICE','UNDER INVOICE','UNDER PICKING','STOCK'];
+    for(const sh of sheets){
+      try{
+        const url = `https://docs.google.com/spreadsheets/d/${SID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sh)}`;
+        const txt = await (await fetch(url)).text();
+        const j = JSON.parse(txt.replace(/^[^(]+\(/,'').replace(/\);?\s*$/,''));
+        const cols = (j.table.cols||[]).map(c=>(c.label||'').toUpperCase());
+        const onIdx = cols.findIndex(c=>c.includes('ON ORD')||c.includes('PEND')||c.includes('ALLOC'));
+        (j.table.rows||[]).forEach(r=>{
+          const c = r.c||[];
+          const v = i => (c[i]&&(c[i].v??c[i].f))??'';
+          const partRaw = [v(0),v(1),v(2),v(12)].find(x=>/[0-9A-Z]{5,}/i.test(String(x||'')));
+          const k = clean(partRaw);
+          if(!k) return;
+          let q = 0;
+          if(sh==='STOCK'){
+            if(onIdx>=0) q = Number(String(v(onIdx)||0).replace(/[^0-9.-]/g,''))||0;
+          }else{
+            for(let idx=1;idx<c.length;idx++){
+              const num = Number(String(v(idx)||'').replace(/,/g,''));
+              if(num>0 && num<100000 && !String(v(idx)).includes('/')){ q = num; break; }
+            }
+          }
+          if(q>0) pipe[k] = (pipe[k]||0) + q;
+        });
+      }catch(e){}
+    }
+    return pipe;
+  }
+
+  async function syncReorderOnOrd(){
+    const m = await loadAllPipe();
+    document.querySelectorAll('div,span').forEach(lbl=>{
+      if((lbl.textContent||'').trim().toUpperCase()!=='ON ORD') return;
+      const box = lbl.parentElement;
+      if(!box || box.dataset.ro2) return;
+      const valEl = Array.from(box.children).find(el=>el!==lbl && /^-?\d+$/.test(el.textContent.trim()));
+      const card = box.closest('[class*="card"],div[style*="border"]') || box.parentElement?.parentElement?.parentElement;
+      const pMatch = card && card.textContent.match(/\b([0-9A-Z]{5,}[0-9A-Z\-]{2,})\b/i);
+      if(!valEl || !pMatch) return;
+      const q = m[clean(pMatch[1])] || 0;
+      if(q<=0) return;
+      box.dataset.ro2 = '1';
+      valEl.textContent = String(q);
+      valEl.style.color = '#0284c7';
+      valEl.style.fontWeight = '800';
+      const ordLbl = card && Array.from(card.querySelectorAll('div,span')).find(el=>(el.textContent||'').trim().toUpperCase()==='ORDER');
+      const ordVal = ordLbl && ordLbl.parentElement && Array.from(ordLbl.parentElement.children).find(el=>el!==ordLbl && /^[+-]?\d+$/.test(el.textContent.trim()));
+      if(ordVal){
+        const base = Math.abs(Number(ordVal.textContent.replace(/[^0-9-]/g,''))||0);
+        const net = Math.max(0, base - q);
+        ordVal.textContent = net>0 ? '+'+net : '0';
+      }
+    });
+  }
+
+  new MutationObserver(()=>setTimeout(syncReorderOnOrd, 400)).observe(document.body,{childList:true,subtree:true});
+  setTimeout(syncReorderOnOrd, 700);
+})();
   </script>
 </body></html>
