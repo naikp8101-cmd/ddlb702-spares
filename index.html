@@ -1472,16 +1472,17 @@ if (personCode === 'UNDEFINED') personName = 'UNASSIGNED';
             if (qVal > 0 && qVal <= 20) qty = qVal;
           }
           if (currentCat === 'BAT') {
-  const jcBatMap = {
+  const jcBat = {
     'JC26003755': 'SA1', 'JC26007209': 'SA1', 'JC26006876': 'SA1',
     'JC26007340': 'WM', 'JC26007190': 'WM',
     'JC26007215': 'SA19', 'JC26007160': 'SA19'
   };
-  const bCode = jcBatMap[jcNo] || personCode;
+  const bCode = jcBat[jcNo] || personCode;
   if (!stats[bCode]) stats[bCode] = { code: bCode, name: bCode, jcs: new Set(), bat: 0, tyre: 0 };
   stats[bCode].bat += qty;
   stats[bCode].jcs.add(jcNo);
 }
+
 
           if (currentCat === 'TYRE') stats[personCode].tyre += qty;
 
