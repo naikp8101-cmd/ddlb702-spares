@@ -1878,38 +1878,33 @@
   const clean = s => String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
   let pipe = null;
 
-  async function loadAllPipe(){
+    async function loadAllPipe(){
     if(pipe) return pipe;
     pipe = {};
-    const sheets = ['ALLOCATION','INVOICE','UNDER INVOICE','UNDER PICKING','STOCK'];
-    for(const sh of sheets){
+    const CFG = [
+      { sh: 'BACK ORDER',    p: 4, q: 9 },
+      { sh: 'ALLOCATION',    p: 5, q: 7 },
+      { sh: 'INVOICE',       p: 4, q: 6 },
+      { sh: 'UNDER PICKING', p: 5, q: 7 },
+      { sh: 'UNDER INVOICE', p: 6, q: 8 }
+    ];
+    for(const item of CFG){
       try{
-        const url = `https://docs.google.com/spreadsheets/d/${SID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sh)}`;
+        const url = `https://docs.google.com/spreadsheets/d/${SID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(item.sh)}`;
         const txt = await (await fetch(url)).text();
         const j = JSON.parse(txt.replace(/^[^(]+\(/,'').replace(/\);?\s*$/,''));
-        const cols = (j.table.cols||[]).map(c=>(c.label||'').toUpperCase());
-        const onIdx = cols.findIndex(c=>c.includes('ON ORD')||c.includes('PEND')||c.includes('ALLOC'));
         (j.table.rows||[]).forEach(r=>{
           const c = r.c||[];
           const v = i => (c[i]&&(c[i].v??c[i].f))??'';
-          const partRaw = [v(0),v(1),v(2),v(12)].find(x=>/[0-9A-Z]{5,}/i.test(String(x||'')));
-          const k = clean(partRaw);
-          if(!k) return;
-          let q = 0;
-          if(sh==='STOCK'){
-            if(onIdx>=0) q = Number(String(v(onIdx)||0).replace(/[^0-9.-]/g,''))||0;
-          }else{
-            for(let idx=1;idx<c.length;idx++){
-              const num = Number(String(v(idx)||'').replace(/,/g,''));
-              if(num>0 && num<100000 && !String(v(idx)).includes('/')){ q = num; break; }
-            }
-          }
-          if(q>0) pipe[k] = (pipe[k]||0) + q;
+          const k = clean(v(item.p));
+          const qty = Number(String(v(item.q)||0).replace(/[^0-9.-]/g,''))||0;
+          if(k && k.length>=5 && qty>0) pipe[k] = (pipe[k]||0) + qty;
         });
       }catch(e){}
     }
     return pipe;
-  }
+    }
+   
 
   async function syncReorderOnOrd(){
     const m = await loadAllPipe();
