@@ -1452,6 +1452,8 @@ if (!isRemoteBat && (currentPart.startsWith('33610') || /\b(BATTERY|AMARON|EXIDE
             const candidate = lineItems[codeIdx + 1].str.trim().toUpperCase();
             if (candidate && !/^JC\d+/.test(candidate) && candidate !== '====') {
               personName = candidate;
+    if (!window.__jcPersonMap) window.__jcPersonMap = {};
+if (personCode && personCode !== 'UNKNOWN') window.__jcPersonMap[jcNo] = { code: personCode, name: personName };
             }
           }
         }
@@ -1472,17 +1474,14 @@ if (personCode === 'UNDEFINED') personName = 'UNASSIGNED';
             if (qVal > 0 && qVal <= 20) qty = qVal;
           }
           if (currentCat === 'BAT') {
-  const hitAdv = /HM GIRISHKUMAR/i.test(up) ? 'HM GIRISHKUMAR'
-    : /SOMACHANDRAPPA/i.test(up) ? 'SOMACHANDRAPPA KM'
-    : /SHRIDHAR/i.test(up) ? 'SHRIDHAR M'
-    : null;
-  if (hitAdv) {
-    const k = Object.keys(stats).find(key => stats[key].name.toUpperCase().includes(hitAdv.split(' ')[0])) || personCode;
-    stats[k].bat += qty;
-  } else {
-    stats[personCode].bat += qty;
-  }
+  const mapped = (window.__jcPersonMap && window.__jcPersonMap[jcNo]) || { code: personCode, name: personName };
+  const targetCode = mapped.code || personCode;
+  if (!stats[targetCode]) stats[targetCode] = { code: targetCode, name: mapped.name || targetCode, jcs: new Set(), bat: 0, tyre: 0 };
+  if (mapped.name && stats[targetCode].name === targetCode) stats[targetCode].name = mapped.name;
+  stats[targetCode].bat += qty;
+  stats[targetCode].jcs.add(jcNo);
 }
+
 
           if (currentCat === 'TYRE') stats[personCode].tyre += qty;
 
