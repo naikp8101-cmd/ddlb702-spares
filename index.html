@@ -1823,7 +1823,7 @@
   new MutationObserver(() => syncAdvisorStockBadges()).observe(document.body, { childList: true, subtree: true });
   setTimeout(syncAdvisorStockBadges, 600);
 })();
-   // Sync On-Order strictly from pipeline tabs (excluding STOCK tab B/O, ALLO, U/P, INV)
+   // Sync On-Order / Dispatched / Invoice qty into Reorder ON ORD
 (function() {
   const SHEET_ID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
   let onOrdMap = null;
@@ -1846,8 +1846,21 @@
     if (onOrdMap) return onOrdMap;
     onOrdMap = {};
 
-    // Read ONLY from dedicated order/dispatch pipeline tabs (NOT from STOCK tab)
-    const pipelineTabs = ['ALLOCATION', 'INVOICE', 'UNDER INVOICE', 'UNDER PICKING'];
+    // 1. Check STOCK tab Col I(8)=B/O, J(9)=ALLO, K(10)=U/P, L(11)=INV
+    const stockRows = await fetchSheetRows('STOCK');
+    stockRows.forEach(r => {
+      const c = r.c || [];
+      const val = (i) => (c[i] && (c[i].v !== null && c[i].v !== undefined ? c[i].v : c[i].f)) ?? '';
+      const pKey = clean(val(0) || val(12));
+      if (!pKey) return;
+      const totPipeline = num(val(8)) + num(val(9)) + num(val(10)) + num(val(11));
+      if (totPipeline > 0) {
+        onOrdMap[pKey] = Math.max(onOrdMap[pKey] || 0, totPipeline);
+      }
+    });
+
+    // 2. Check INVOICE, UNDER INVOICE, UNDER PICKING, DISPATCH tabs
+    const pipelineTabs = ['INVOICE', 'UNDER INVOICE', 'UNDER PICKING', 'DISPATCH'];
     for (const tab of pipelineTabs) {
       const rows = await fetchSheetRows(tab);
       if (!rows.length) continue;
@@ -1858,11 +1871,11 @@
         c.forEach((cell, idx) => {
           const lbl = String((cell && (cell.v ?? cell.f)) || '').toUpperCase();
           if (partCol === -1 && (lbl.includes('PART NO') || lbl.includes('PART NUMBER') || lbl === 'MATERIAL')) partCol = idx;
-          if (qtyCol === -1 && (lbl.includes('PICK QTY') || lbl.includes('INV QTY') || lbl.includes('ALLO QTY') || lbl.includes('ORDER QTY') || lbl === 'QTY')) qtyCol = idx;
+          if (qtyCol === -1 && (lbl.includes('PICK QTY') || lbl.includes('INV QTY') || lbl.includes('DISPATCH') || lbl.includes('ORDER QTY') || lbl === 'QTY')) qtyCol = idx;
         });
       }
 
-      rows.forEach((r) => {
+      rows.forEach((r, idx) => {
         const c = r.c || [];
         const val = (i) => (c[i] && (c[i].v !== null && c[i].v !== undefined ? c[i].v : c[i].f)) ?? '';
         let pRaw = partCol !== -1 ? String(val(partCol)) : '';
@@ -1926,32 +1939,8 @@
   setTimeout(updateReorderOnOrd, 500);
 })();
 
-
-    <script>
-(function(){
-  const SID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
-  const clean = s => String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
-  window.__ddlbGetStock = async function(){
-    if(window.__ddlbStkMap) return window.__ddlbStkMap;
-    window.__ddlbStkMap = {};
-    try{
-      const u = `https://docs.google.com/spreadsheets/d/${SID}/gviz/tq?tqx=out:json&sheet=STOCK`;
-      const t = await (await fetch(u)).text();
-      const j = JSON.parse(t.replace(/^[^(]+\(/,'').replace(/\);?\s*$/,''));
-      (j.table.rows||[]).forEach(r=>{
-        const c=r.c||[], v=i=>(c[i]&&(c[i].v??c[i].f))??'';
-        const k=clean(v(0)||v(12)), s=Number(String(v(5)).replace(/[^0-9.-]/g,''))||0, b=String(v(6)||'NOBIN').trim();
-        if(k && s>0) window.__ddlbStkMap[k]={s,b};
-      });
-    }catch(e){}
-    return window.__ddlbStkMap;
-  };
-})();
 </script>
 
-
-
-    
   </script>
 </body>
 </html>
