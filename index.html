@@ -1471,7 +1471,8 @@ if (personCode === 'UNDEFINED') personName = 'UNASSIGNED';
             const qVal = Math.round(Number(rightMost.str.trim()));
             if (qVal > 0 && qVal <= 20) qty = qVal;
           }
-          if (currentCat === 'BAT') stats[personCode].bat += qty;
+          if (currentCat === 'BAT') { const advHit = up.match(/\b(SA1|SA7|SA11|SA19|WM2|WM)\b/); const targetCode = advHit ? advHit[1] : personCode; if (!stats[targetCode]) stats[targetCode] = { code: targetCode, name: targetCode, jcs: new Set(), bat: 0, tyre: 0 }; stats[targetCode].bat += qty; stats[targetCode].jcs.add(jcNo); }
+
           if (currentCat === 'TYRE') stats[personCode].tyre += qty;
 
           const regMatch = up.match(/\b([A-Z]{2}\d{2}[A-Z0-9]{1,6})\b/);
