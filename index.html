@@ -807,7 +807,38 @@
         box.innerHTML = lastOrderResults.map((item, idx) => {
           const badgeClass = (item.stage === 'B/O' || item.stage === 'ORDER ERROR') ? 'stage-bo' : item.stage === 'ALLO' ? 'stage-allo' : item.stage === 'UNDER PICKING' ? 'stage-up' : 'stage-inv';
           const borderCol = (item.stage === 'B/O' || item.stage === 'ORDER ERROR') ? '#dc2626' : item.stage === 'ALLO' ? '#d97706' : item.stage === 'UNDER PICKING' ? '#2563eb' : item.stage === 'UNDER INVOICE' ? '#7c3aed' : '#059669';
-          const detailsHTML = Object.entries(item.details || {}).filter(([k, v]) => k !== 'Part No' && k !== 'Part Name' && v !== '' && v !== null).map(([k, v]) => `<div><span style="color:#64748b">${k}:</span> <b>${v}</b></div>`).join('');
+          const formatInvDateMMDDYYYY = (val) => {
+  const s = String(val || '').trim();
+  const digits = s.replace(/\D/g, '');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  if (/^\d{8}$/.test(digits)) {
+    const mm = parseInt(digits.slice(0, 2), 10);
+    const dd = parseInt(digits.slice(2, 4), 10);
+    const yyyy = digits.slice(4, 8);
+    if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+      return `${String(dd).padStart(2, '0')}-${months[mm - 1]}-${yyyy}`;
+    }
+  }
+  const slashMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (slashMatch) {
+    const mm = parseInt(slashMatch[1], 10);
+    const dd = parseInt(slashMatch[2], 10);
+    const yyyy = slashMatch[3];
+    if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+      return `${String(dd).padStart(2, '0')}-${months[mm - 1]}-${yyyy}`;
+    }
+  }
+  return s;
+};
+
+const detailsHTML = Object.entries(item.details || {})
+  .filter(([k, v]) => k !== 'Part No' && k !== 'Part Name' && v !== '' && v !== null)
+  .map(([k, v]) => {
+    const displayVal = /invoice[_\s]*date|inv[_\s]*date/i.test(k) ? formatInvDateMMDDYYYY(v) : v;
+    return `<div><span style="color:#64748b">${k}:</span> <b>${displayVal}</b></div>`;
+  })
+  .join('');
+          
           const orderDateVal = item.details && (item.details['Order Date'] || item.details['ORDER DATE'] || item.details['Date']);
           const agingHTML = item.stage === 'B/O' ? getAgingBadge(orderDateVal) : '';
           let trackingHTML = '';
