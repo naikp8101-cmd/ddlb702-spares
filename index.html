@@ -175,19 +175,21 @@
 
 <!-- AUDIT ENTRY MODAL -->
 <div class="modal" id="auditModal">
+<!-- MODAL-ONLY AUDIT POPUP (SCREEN CLEAN + DDL PRICE & MRP IN CSV ONLY) -->
+<div class="modal" id="auditModal">
   <div class="modal-content">
-    <h3 style="margin-top:0;">📋 Total Physical Part &amp; Bin Audit</h3>
+    <h3 style="margin-top:0;">📋 Total Physical &amp; Bin Audit</h3>
     <div class="form-group">
       <label>Part Number</label>
       <input type="text" id="audPart" placeholder="e.g. 17880M86J00" style="text-transform:uppercase;" />
     </div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
       <div class="form-group">
-        <label>Found in Bin (e.g. GA01A01)</label>
+        <label>Found in Bin</label>
         <input type="text" id="audBin" placeholder="e.g. GA01A01" style="text-transform:uppercase;" />
       </div>
       <div class="form-group">
-        <label>In System Stock Sheet?</label>
+        <label>In System Stock?</label>
         <select id="audInSystem" style="width:100%; padding:10px; border:1px solid var(--border); border-radius:10px; font-size:13.5px; font-weight:600; background:#fff;">
           <option value="1">Yes (In System)</option>
           <option value="0">No (Not in System)</option>
@@ -200,7 +202,7 @@
         <input type="number" id="audSysQty" value="0" min="0" />
       </div>
       <div class="form-group">
-        <label>Qty Found in This Bin</label>
+        <label>Qty in This Bin</label>
         <input type="number" id="audPhyQty" value="0" min="0" />
       </div>
     </div>
@@ -208,12 +210,18 @@
       <label>Remark / Note (Optional)</label>
       <input type="text" id="audNote" placeholder="e.g. Loose / Return / Wrong Bin" />
     </div>
-    <div style="display:flex; gap:8px;">
-      <button type="button" class="btn btn-outline" onclick="closeAuditModal()">Cancel</button>
+    <div style="display:flex; gap:8px; margin-bottom:10px;">
+      <button type="button" class="btn btn-outline" onclick="closeAuditModal()">Close</button>
       <button type="button" class="btn btn-primary" style="flex:1; background:#7c3aed;" onclick="saveAuditEntry()">Save &amp; Consolidate Bin</button>
     </div>
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; border-top:1px solid var(--border); padding-top:8px;">
+      <span id="audModalSummary" style="font-size:11px; font-weight:700; color:#475569;">Audited: 0 · Mismatch: 0</span>
+      <button type="button" class="btn btn-sm btn-outline" onclick="downloadAuditCSV()">📥 CSV</button>
+    </div>
+    <div id="auditModalList" style="margin-top:8px; max-height:170px; overflow-y:auto; font-size:11.5px;"></div>
   </div>
 </div>
+
       
       <div id="stockResults"><div class="empty">🔍 Search Part Number, Scan QR Code, or tap a Rack Bin above</div></div>
     </div>
@@ -2407,6 +2415,379 @@ const detailsHTML = Object.entries(item.details || {})
   fixOrderInvoiceDatesInDOM();
   renderAuditUI();
 })();
-  
+  // =========================================================================
+// ALL-IN-ONE MODULE: INVOICE DATE + HIGHLIGHT + BIN AUDIT + DDL/MRP CSV
+// =========================================================================
+(function initAllInOneWarehouseAudit() {
+  const AUDIT_KEY = 'ddlb702_all_in_one_audit_v1';
+  const SHEET_ID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
+  let auditMap = {};
+  let priceCache = null;
+
+  try {
+    const raw = JSON.parse(localStorage.getItem(AUDIT_KEY) || '{}');
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) auditMap = raw;
+  } catch (e) {
+    auditMap = {};
+  }
+
+  function saveStore() {
+    try { localStorage.setItem(AUDIT_KEY, JSON.stringify(auditMap)); } catch (e) {}
+  }
+
+  function cleanKey(v) {
+    return String(v || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+
+  // 1. Invoice Date Fix (MMDDYYYY & swapped DD-MMM-YYYY)
+  window.formatInvDateMMDDYYYY = function(val) {
+    const s = String(val || '').trim();
+    if (!s) return s;
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const monMap = { JAN:1, FEB:2, MAR:3, APR:4, MAY:5, JUN:6, JUL:7, AUG:8, SEP:9, OCT:10, NOV:11, DEC:12 };
+
+    const dmyMatch = s.match(/^(\d{1,2})[\-\/\s]([A-Za-z]{3})[\-\/\s](\d{4})$/);
+    if (dmyMatch) {
+      const origMonthAsDay = parseInt(dmyMatch[1], 10);
+      const origDayAsMonth = monMap[dmyMatch[2].toUpperCase()];
+      const yyyy = dmyMatch[3];
+      if (origDayAsMonth >= 1 && origDayAsMonth <= 12 && origMonthAsDay >= 1 && origMonthAsDay <= 31) {
+        return `${String(origMonthAsDay).padStart(2, '0')}-${months[origDayAsMonth - 1]}-${yyyy}`;
+      }
+    }
+
+    const digits = s.replace(/\D/g, '');
+    if (/^\d{8}$/.test(digits)) {
+      const mm = parseInt(digits.slice(0, 2), 10);
+      const dd = parseInt(digits.slice(2, 4), 10);
+      const yyyy = digits.slice(4, 8);
+      if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+        return `${String(dd).padStart(2, '0')}-${months[mm - 1]}-${yyyy}`;
+      }
+    }
+
+    const slashMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (slashMatch) {
+      const mm = parseInt(slashMatch[1], 10);
+      const dd = parseInt(slashMatch[2], 10);
+      const yyyy = slashMatch[3];
+      if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+        return `${String(dd).padStart(2, '0')}-${months[mm - 1]}-${yyyy}`;
+      }
+    }
+    return s;
+  };
+
+  function fixOrderInvoiceDatesInDOM() {
+    const orderBox = document.getElementById('orderResults');
+    if (!orderBox) return;
+    orderBox.querySelectorAll('div, span, b').forEach(el => {
+      if (el.children.length > 0) return;
+      const txt = (el.textContent || '').trim();
+      const fixed = window.formatInvDateMMDDYYYY(txt);
+      if (fixed && fixed !== txt && (/^\d{8}$/.test(txt.replace(/\D/g, '')) || /^\d{1,2}-[A-Za-z]{3}-\d{4}$/.test(txt) || /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(txt))) {
+        el.textContent = fixed;
+      }
+    });
+  }
+
+  // 2. Lookup DDL Price & MRP (for CSV export only)
+  async function loadPriceMapFromSheet() {
+    if (priceCache) return priceCache;
+    priceCache = {};
+    try {
+      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=STOCK`;
+      const txt = await (await fetch(url)).text();
+      const json = JSON.parse(txt.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, ''));
+      const cols = (json.table && json.table.cols) || [];
+      let ddlIdx = -1;
+      let mrpIdx = 4;
+      cols.forEach((col, i) => {
+        const lbl = String(col.label || col.id || '').toUpperCase();
+        if (lbl.includes('DDL') || lbl.includes('NDP') || lbl.includes('DEALER')) ddlIdx = i;
+        if (lbl.includes('MRP')) mrpIdx = i;
+      });
+      (json.table.rows || []).forEach(r => {
+        const c = r.c || [];
+        const val = i => (i >= 0 && c[i] && (c[i].v ?? c[i].f)) ?? '';
+        const pKey = cleanKey(val(0) || val(12));
+        const mrp = Number(String(val(mrpIdx)).replace(/[^0-9.-]/g, '')) || 0;
+        const ddl = ddlIdx >= 0 ? (Number(String(val(ddlIdx)).replace(/[^0-9.-]/g, '')) || 0) : 0;
+        if (pKey) priceCache[pKey] = { ddl, mrp };
+      });
+    } catch (e) {}
+    return priceCache;
+  }
+
+  function getPricesFromCardOrCache(partNum) {
+    const k = cleanKey(partNum);
+    let ddl = priceCache && priceCache[k] ? Number(priceCache[k].ddl || 0) : 0;
+    let mrp = priceCache && priceCache[k] ? Number(priceCache[k].mrp || 0) : 0;
+
+    const card = Array.from(document.querySelectorAll('#stockResults .card')).find(c => {
+      const p = cleanKey(c.querySelector('.part-num')?.textContent || '');
+      return p === k;
+    });
+    if (card) {
+      const txt = card.textContent || '';
+      const ddlM = txt.match(/(?:DDL|NDP|DEALER)[^\d₹]*₹?\s*([\d,]+(?:\.\d+)?)/i);
+      const mrpM = txt.match(/MRP[^\d₹]*₹?\s*([\d,]+(?:\.\d+)?)/i);
+      if (ddlM) ddl = parseFloat(ddlM[1].replace(/,/g, '')) || ddl;
+      if (mrpM) mrp = parseFloat(mrpM[1].replace(/,/g, '')) || mrp;
+    }
+    return { ddl, mrp };
+  }
+
+  // 3. Highlight searched/scanned part card & attach quick modal audit button
+  function highlightSearchedPartInStockResults() {
+    const qVal = String(document.getElementById('stockQuery')?.value || '').trim().toUpperCase();
+    const cleanQ = typeof extractPartNumber === 'function' ? extractPartNumber(qVal) : qVal;
+    const box = document.getElementById('stockResults');
+    if (!box) return;
+
+    box.querySelectorAll('.card').forEach(card => {
+      const pNumEl = card.querySelector('.part-num');
+      const pNum = String(pNumEl?.textContent || '').trim().toUpperCase();
+      if (!pNum) return;
+
+      const isTarget = cleanQ && (cleanKey(pNum) === cleanKey(cleanQ) || cleanKey(pNum).includes(cleanKey(cleanQ)));
+      const existingAud = auditMap[pNum] || null;
+
+      if (isTarget) {
+        card.style.border = '2.5px solid #7c3aed';
+        card.style.boxShadow = '0 0 0 4px rgba(124, 58, 237, 0.16)';
+        card.style.background = '#faf5ff';
+      }
+
+      if (!card.querySelector('.audit-card-bar')) {
+        const btnRow = card.querySelector('.card-btn-row');
+        const rawBin = existingAud ? existingAud.finalBin : String(card.querySelector('.bin-badge')?.textContent || '').replace(/📍/g, '').trim();
+        const safeBin = rawBin === 'NOBIN' ? '' : rawBin;
+        const metrics = Array.from(card.querySelectorAll('.metrics .metric-val'));
+        const sysStockNum = Number(String(metrics[0]?.textContent || '0').replace(/[^0-9.-]/g, '')) || 0;
+
+        if (btnRow) {
+          const audBtn = document.createElement('button');
+          audBtn.type = 'button';
+          audBtn.className = 'btn btn-outline audit-card-bar';
+          audBtn.style.cssText = 'border-color:#7c3aed; color:#6d28d9; background:#f5f3ff;';
+          audBtn.innerHTML = '📋 Audit';
+          audBtn.onclick = () => window.openAuditModal({
+            partNum: pNum,
+            bin: safeBin,
+            stock: sysStockNum,
+            phyQty: 0,
+            inSystem: true
+          });
+          btnRow.appendChild(audBtn);
+        }
+
+        if (existingAud) {
+          const info = document.createElement('div');
+          info.style.cssText = 'margin-top:8px; padding:6px 9px; border-radius:8px; background:#f5f3ff; border:1px solid #ddd6fe; font-size:11.5px; color:#4c1d95; font-weight:700;';
+          info.innerHTML = `Primary Bin: <b>${existingAud.finalBin}</b> · Total Phy: <b>${existingAud.totalPhyQty}</b> · ${existingAud.auditType} (${existingAud.diff > 0 ? '+' + existingAud.diff : existingAud.diff})`;
+          card.appendChild(info);
+        }
+      }
+    });
+  }
+
+  // 4. Modal-only Audit controls (Total Physical + Highest Matching Bin Replace + Staff/Admin)
+  window.openAuditModal = function(prefill = {}) {
+    loadPriceMapFromSheet();
+    const pNum = String(prefill.partNum || document.getElementById('stockQuery')?.value || '').trim().toUpperCase();
+    const prev = pNum && auditMap[pNum] ? auditMap[pNum] : null;
+    document.getElementById('audPart').value = pNum;
+    document.getElementById('audBin').value = String(prefill.bin || (prev ? prev.finalBin : '') || '').trim().toUpperCase();
+    document.getElementById('audInSystem').value = prefill.inSystem === false ? '0' : '1';
+    document.getElementById('audSysQty').value = prefill.stock !== undefined ? Number(prefill.stock) : (prev ? prev.sysQty : 0);
+    document.getElementById('audPhyQty').value = prefill.phyQty !== undefined ? Number(prefill.phyQty) : 0;
+    document.getElementById('audNote').value = String(prefill.note || '');
+    renderModalAuditList();
+    document.getElementById('auditModal').style.display = 'flex';
+  };
+
+  window.closeAuditModal = function() {
+    document.getElementById('auditModal').style.display = 'none';
+  };
+
+  window.saveAuditEntry = async function() {
+    await loadPriceMapFromSheet();
+    const rawPart = document.getElementById('audPart').value.trim().toUpperCase();
+    const cleanPart = (typeof extractPartNumber === 'function' ? extractPartNumber(rawPart) : rawPart) || rawPart;
+    const cleanBin = document.getElementById('audBin').value.trim().toUpperCase() || 'UNSPECIFIED';
+    const inSystem = document.getElementById('audInSystem').value === '1';
+    const sQty = inSystem ? Number(document.getElementById('audSysQty').value || 0) : 0;
+    const addQty = Number(document.getElementById('audPhyQty').value || 0);
+    const note = document.getElementById('audNote').value.trim();
+    const nowStr = new Date().toLocaleString('en-IN');
+
+    if (!cleanPart) {
+      if (typeof showToast === 'function') showToast('Part Number haaki!');
+      return;
+    }
+
+    const prices = getPricesFromCardOrCache(cleanPart);
+
+    if (!auditMap[cleanPart]) {
+      auditMap[cleanPart] = {
+        partNum: cleanPart,
+        sysQty: sQty,
+        inSystem,
+        binCounts: {},
+        totalPhyQty: 0,
+        finalBin: cleanBin,
+        moveFromBins: [],
+        diff: 0,
+        ddlPrice: prices.ddl,
+        mrp: prices.mrp,
+        auditType: 'MATCH',
+        staff: (typeof staffName !== 'undefined' ? staffName : 'Praveen'),
+        note: '',
+        updatedAt: nowStr,
+        adminStatus: 'VERIFIED'
+      };
+    }
+
+    const rec = auditMap[cleanPart];
+    rec.sysQty = sQty;
+    if (!inSystem) rec.inSystem = false;
+    if (prices.ddl > 0) rec.ddlPrice = prices.ddl;
+    if (prices.mrp > 0) rec.mrp = prices.mrp;
+    rec.staff = (typeof staffName !== 'undefined' ? staffName : rec.staff);
+    rec.updatedAt = nowStr;
+    rec.binCounts[cleanBin] = Number(rec.binCounts[cleanBin] || 0) + addQty;
+
+    const entries = Object.entries(rec.binCounts);
+    rec.totalPhyQty = entries.reduce((sum, [, q]) => sum + Number(q || 0), 0);
+
+    // Replace Primary Bin with highest matching bin (closest to sysQty, then highest bin qty)
+    let bestBin = cleanBin;
+    let bestGap = Infinity;
+    let bestQty = -1;
+    for (const [bCode, qRaw] of entries) {
+      const q = Number(qRaw || 0);
+      const gap = Math.abs(q - rec.sysQty);
+      if (gap < bestGap || (gap === bestGap && q > bestQty)) {
+        bestGap = gap;
+        bestQty = q;
+        bestBin = bCode;
+      }
+    }
+
+    rec.finalBin = bestBin;
+    rec.moveFromBins = entries.filter(([b, q]) => b !== bestBin && Number(q || 0) > 0).map(([b, q]) => `${b}(${q})`);
+    rec.diff = rec.totalPhyQty - rec.sysQty;
+
+    if (!rec.inSystem) rec.auditType = 'NOT_IN_SYSTEM';
+    else if (rec.diff > 0) rec.auditType = 'EXCESS';
+    else if (rec.diff < 0) rec.auditType = 'SHORTAGE';
+    else rec.auditType = 'MATCH';
+
+    const moveTxt = rec.moveFromBins.length ? `Move ${rec.moveFromBins.join(', ')} -> ${rec.finalBin}` : '';
+    rec.note = Array.from(new Set([moveTxt, note, rec.note].filter(Boolean))).join(' | ');
+    rec.adminStatus = rec.auditType === 'MATCH' ? 'VERIFIED' : 'PENDING_ADMIN';
+
+    saveStore();
+    renderModalAuditList();
+    highlightSearchedPartInStockResults();
+    if (typeof showToast === 'function') {
+      showToast(`${cleanPart}: Primary Bin ${rec.finalBin} | Total Phy ${rec.totalPhyQty}`);
+    }
+  };
+
+  window.approveModalAuditItem = function(partNum) {
+    if (typeof isAdmin !== 'undefined' && !isAdmin) {
+      if (typeof showToast === 'function') showToast('Admin mode unlock madi!');
+      return;
+    }
+    if (!auditMap[partNum]) return;
+    auditMap[partNum].adminStatus = 'APPROVED';
+    saveStore();
+    renderModalAuditList();
+  };
+
+  window.downloadAuditCSV = async function() {
+    await loadPriceMapFromSheet();
+    const list = Object.values(auditMap);
+    if (!list.length) {
+      if (typeof showToast === 'function') showToast('No audit records to export');
+      return;
+    }
+    const rows = [[
+      'Part Number', 'Primary Bin', 'Bins Found', 'In System',
+      'System Stock', 'Total Physical', 'Diff', 'Status',
+      'DDL Price', 'MRP', 'DDL Diff Val', 'MRP Diff Val',
+      'Admin Status', 'Staff', 'Note', 'Updated'
+    ]];
+    list.forEach(r => {
+      const liveP = getPricesFromCardOrCache(r.partNum);
+      const ddl = liveP.ddl > 0 ? liveP.ddl : Number(r.ddlPrice || 0);
+      const mrp = liveP.mrp > 0 ? liveP.mrp : Number(r.mrp || 0);
+      const diffNum = Number(r.diff || 0);
+      const ddlDiffVal = Number((diffNum * ddl).toFixed(2));
+      const mrpDiffVal = Number((diffNum * mrp).toFixed(2));
+      rows.push([
+        r.partNum,
+        r.finalBin,
+        `"${Object.entries(r.binCounts || {}).map(([b, q]) => `${b}:${q}`).join('; ')}"`,
+        r.inSystem ? 'YES' : 'NO',
+        r.sysQty,
+        r.totalPhyQty,
+        diffNum,
+        r.auditType,
+        ddl,
+        mrp,
+        ddlDiffVal,
+        mrpDiffVal,
+        r.adminStatus,
+        `"${String(r.staff || '').replace(/"/g, '""')}"`,
+        `"${String(r.note || '').replace(/"/g, '""')}"`,
+        `"${String(r.updatedAt || '').replace(/"/g, '""')}"`
+      ]);
+    });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([rows.map(r => r.join(',')).join('\n')], { type: 'text/csv;charset=utf-8;' }));
+    a.download = 'DDLB702_Audit_Report.csv';
+    a.click();
+  };
+
+  function renderModalAuditList() {
+    const list = Object.values(auditMap);
+    const sumEl = document.getElementById('audModalSummary');
+    const boxEl = document.getElementById('auditModalList');
+    if (!sumEl || !boxEl) return;
+
+    const mismatchCnt = list.filter(x => x.auditType !== 'MATCH').length;
+    sumEl.innerText = `Audited: ${list.length} · Mismatch: ${mismatchCnt}`;
+
+    if (!list.length) {
+      boxEl.innerHTML = '<div style="color:#64748b;">No audited parts saved yet.</div>';
+      return;
+    }
+
+    boxEl.innerHTML = list.map(r => {
+      const canApprove = (typeof isAdmin !== 'undefined' && isAdmin) && r.adminStatus === 'PENDING_ADMIN';
+      return `<div style="padding:6px 8px; margin-top:5px; border-radius:8px; border:1px solid #e2e8f0; background:#f8fafc;">
+        <div style="display:flex; justify-content:space-between; gap:6px;">
+          <b>${r.partNum}</b> · Bin: <b>${r.finalBin}</b> · <b>${r.auditType}</b> (${r.diff > 0 ? '+' + r.diff : r.diff})
+          ${canApprove ? `<button type="button" class="btn btn-sm" style="padding:2px 7px; font-size:10px; background:#16a34a; color:#fff;" onclick="approveModalAuditItem('${r.partNum}')">Approve</button>` : ''}
+        </div>
+        <div style="color:#334155; margin-top:2px;">
+          Sys: <b>${r.sysQty}</b> | Phy: <b>${r.totalPhyQty}</b> | Bins: <b>${Object.entries(r.binCounts || {}).map(([b, q]) => `${b}(${q})`).join(', ')}</b>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  new MutationObserver(() => {
+    fixOrderInvoiceDatesInDOM();
+    highlightSearchedPartInStockResults();
+  }).observe(document.body, { childList: true, subtree: true });
+
+  fixOrderInvoiceDatesInDOM();
+  loadPriceMapFromSheet();
+})();
+                          
   </script>
 </body></html>
