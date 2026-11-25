@@ -2644,6 +2644,218 @@ const detailsHTML = Object.entries(item.details || {})
 
   setTimeout(() => getFastDatabase(false), 150);
 })();
-    
+    // =========================================================================
+// ADVISOR LIVE STATUS + STOCK ROOT MATCH (FORCE OVERRIDE & FAST CACHE)
+// =========================================================================
+(function initFastSparesEngineV2() {
+  if (window.__fastSparesEngineV2) return;
+  window.__fastSparesEngineV2 = true;
+
+  const SHEET_ID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
+  const CACHE_KEY = 'ddlb702_fast_db_v2';
+  const CACHE_TTL_MS = 2 * 60 * 1000;
+
+  const PIPE_SHEETS = [
+    { name: 'BACK ORDER', label: 'BACK ORDER', pIdx: 4, qIdx: 7 },
+    { name: 'ALLOCATION', label: 'ALLOCATION', pIdx: 5, qIdx: 7 },
+    { name: 'INVOICE', label: 'INVOICE', pIdx: 4, qIdx: 6 },
+    { name: 'UNDER PICKING', label: 'UNDER PICKING', pIdx: 5, qIdx: 7 },
+    { name: 'UNDER INVOICE', label: 'UNDER INVOICE', pIdx: 6, qIdx: 8 }
+  ];
+
+  let memDb = null;
+  let inflightPromise = null;
+
+  const norm = v => String(v || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  function readCache() {
+    try {
+      const raw = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null');
+      if (raw && (Date.now() - raw.ts) < CACHE_TTL_MS && raw.data) return raw.data;
+    } catch (e) {}
+    return null;
+  }
+
+  function writeCache(data) {
+    try {
+      sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data }));
+    } catch (e) {}
+  }
+
+  async function fetchSheetRows(sheetName) {
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
+    const res = await fetch(url);
+    const txt = await res.text();
+    const json = JSON.parse(txt.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, ''));
+    return (json.table && json.table.rows) || [];
+  }
+
+  async function getFastDatabase(forceRefresh = false) {
+    if (!forceRefresh) {
+      if (memDb) return memDb;
+      const cached = readCache();
+      if (cached) {
+        memDb = cached;
+        return memDb;
+      }
+    }
+    if (inflightPromise) return inflightPromise;
+
+    inflightPromise = (async () => {
+      const db = { byPart: {}, byRoot: {}, orders: {} };
+      const allTasks = [
+        fetchSheetRows('STOCK').catch(() => []),
+        ...PIPE_SHEETS.map(s => fetchSheetRows(s.name).catch(() => []))
+      ];
+
+      const [stockRows, ...pipeResults] = await Promise.all(allTasks);
+
+      for (let i = 0; i < stockRows.length; i++) {
+        const c = stockRows[i].c || [];
+        const cell = idx => (c[idx] && (c[idx].v ?? c[idx].f)) ?? '';
+        const partNo = String(cell(0) || cell(12) || '').trim().toUpperCase();
+        const rootNo = String(cell(1) || '').trim().toUpperCase();
+        const qty = Number(String(cell(5)).replace(/[^0-9.-]/g, '')) || 0;
+        const bin = String(cell(6) || 'NOBIN').trim().toUpperCase() || 'NOBIN';
+        if (!partNo && !rootNo) continue;
+
+        const rec = { partNo: partNo || rootNo, rootNo: rootNo || partNo, qty, bin };
+        const pK = norm(partNo);
+        const rK = norm(rootNo);
+        if (pK && (!db.byPart[pK] || qty > db.byPart[pK].qty)) db.byPart[pK] = rec;
+        if (rK && (!db.byRoot[rK] || qty > db.byRoot[rK].qty)) db.byRoot[rK] = rec;
+      }
+
+      PIPE_SHEETS.forEach((cfg, idx) => {
+        const rows = pipeResults[idx] || [];
+        for (let i = 0; i < rows.length; i++) {
+          const c = rows[i].c || [];
+          const cell = col => (c[col] && (c[col].v ?? c[col].f)) ?? '';
+          const rawP = String(cell(cfg.pIdx) || cell(4) || cell(5) || cell(6) || '').trim().toUpperCase();
+          const qty = Number(String(cell(cfg.qIdx)).replace(/[^0-9.-]/g, '')) || 0;
+          const k = norm(rawP);
+          if (!k || k.length < 4) continue;
+          if (!db.orders[k]) db.orders[k] = { partNo: rawP, status: cfg.label, qty };
+          else db.orders[k].qty += qty;
+        }
+      });
+
+      memDb = db;
+      writeCache(db);
+      inflightPromise = null;
+      return db;
+    })();
+
+    return inflightPromise;
+  }
+
+  function lookupPartFast(rawCode, db) {
+    const k = norm(rawCode);
+    if (!k || !db) return null;
+
+    let stockRec = db.byPart[k] || null;
+    let viaRoot = false;
+    if (!stockRec && db.byRoot[k]) {
+      stockRec = db.byRoot[k];
+      viaRoot = true;
+    }
+    if (!stockRec) {
+      for (const rk of Object.keys(db.byRoot)) {
+        if (rk.length >= 6 && (rk.startsWith(k) || k.startsWith(rk))) {
+          stockRec = db.byRoot[rk];
+          viaRoot = true;
+          break;
+        }
+      }
+    }
+
+    const keys = [k];
+    if (stockRec) {
+      const pk = norm(stockRec.partNo);
+      const rk = norm(stockRec.rootNo);
+      if (pk && pk !== k) keys.push(pk);
+      if (rk && rk !== k) keys.push(rk);
+    }
+
+    let orderRec = null;
+    for (let i = 0; i < keys.length; i++) {
+      if (db.orders[keys[i]]) {
+        orderRec = db.orders[keys[i]];
+        break;
+      }
+    }
+    return { stockRec, orderRec, viaRoot };
+  }
+
+  async function updateAdvisorBadgesFast(force = false) {
+    const advTab = document.getElementById('tab-advisors');
+    if (!advTab) return;
+
+    const db = await getFastDatabase(force);
+    const pills = advTab.querySelectorAll('span, div, button');
+
+    for (let i = 0; i < pills.length; i++) {
+      const el = pills[i];
+      if (el.children.length > 0) continue;
+
+      const raw = String(el.textContent || '').trim();
+      const up = raw.toUpperCase();
+      if (!up || up.includes('CHECKING LIVE STATUS') || up.includes('SHARE STATUS') || up.includes('REFRESH')) continue;
+      if (!(up.includes('PENDING') || up.includes('NOT ORDERED') || up.includes('BACK ORDER') || up.includes('ALLOC') || up.includes('INVOICE') || up.includes('PICKING'))) {
+        continue;
+      }
+
+      const row = el.closest('[style*="border"], .card, div[style*="background"], div[style*="flex"]') || el.parentElement?.parentElement;
+      if (!row) continue;
+      const rowTxt = row.textContent || '';
+      if (rowTxt.includes('Battery & Tyre Conversion') || rowTxt.includes('Choose file')) continue;
+
+      const m = rowTxt.match(/\b([0-9A-Z]{5,}[M\-][0-9A-Z\-]{2,}|[0-9]{5}[A-Z0-9]{4,8})\b/i);
+      if (!m) continue;
+
+      const hit = lookupPartFast(m[1], db);
+      if (!hit) continue;
+
+      const { stockRec, orderRec, viaRoot } = hit;
+      let nextText = '';
+      let bg = '';
+      let fg = '';
+
+      if (orderRec) {
+        nextText = `${viaRoot ? 'Root · ' : ''}${orderRec.status} · Part: ${orderRec.partNo} · Qty: ${orderRec.qty}`;
+        bg = orderRec.status.includes('INVOICE') ? '#dbeafe' : '#ffedd5';
+        fg = orderRec.status.includes('INVOICE') ? '#1d4ed8' : '#c2410c';
+      } else if (stockRec && stockRec.qty > 0) {
+        nextText = `${viaRoot ? 'Root · ' : ''}IN STOCK · Part: ${stockRec.partNo} · Qty: ${stockRec.qty} (${stockRec.bin})`;
+        bg = '#dcfce7';
+        fg = '#15803d';
+      }
+
+      if (nextText && raw !== nextText) {
+        el.textContent = nextText;
+        el.style.background = bg;
+        el.style.color = fg;
+        el.style.fontWeight = '800';
+      }
+    }
+  }
+
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const t = String(btn.textContent || '').toUpperCase();
+    if (t.includes('REFRESH')) {
+      sessionStorage.removeItem(CACHE_KEY);
+      memDb = null;
+      setTimeout(() => updateAdvisorBadgesFast(true), 250);
+    } else if (t.includes('ADVISORS') || t.includes('SAVE & TRACK')) {
+      setTimeout(() => updateAdvisorBadgesFast(false), 250);
+    }
+  });
+
+  setTimeout(() => getFastDatabase(false), 150);
+  setTimeout(() => updateAdvisorBadgesFast(false), 900);
+})();
+  
   </script>
 </body></html>
