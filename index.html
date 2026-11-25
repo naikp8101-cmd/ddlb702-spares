@@ -3049,6 +3049,309 @@ const detailsHTML = Object.entries(item.details || {})
     if (advTab && advTab.offsetParent !== null) applyForceSync(false);
   }, 1500);
 })();
-    
+    // =========================================================================
+// ADVISOR BADGE SYNC V8 (APPEND AT END): STOCK + OLD-NEW PART + ORDER SHEET
+// =========================================================================
+(function initAdvisorOldNewAndStockV8() {
+  if (window.__advOldNewStockV8) return;
+  window.__advOldNewStockV8 = true;
+
+  const SHEET_ID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
+  const OLD_NEW_SHEET_NAMES = [
+    'OLD NEW PART',
+    'OLD_NEW_PART',
+    'OLD NEW PARTS',
+    'OLD_NEW_PARTS',
+    'PART CONVERSION',
+    'SUPERSEDED'
+  ];
+  const ORDER_SHEETS = [
+    'BACK ORDER',
+    'ALLOCATION',
+    'INVOICE',
+    'UNDER PICKING',
+    'UNDER INVOICE'
+  ];
+
+  const norm = v => String(v || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const PART_RE = /\b([0-9A-Z]{5,}[M\-][0-9A-Z\-]{2,}|[0-9]{5}[A-Z0-9]{4,8})\b/i;
+
+  let dbCache = null;
+  let inflight = null;
+
+  async function readSheet(sheetName) {
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const txt = await res.text();
+    const match = txt.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/);
+    const json = JSON.parse(match ? match[1] : txt.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, ''));
+    if (!json.table || !Array.isArray(json.table.rows)) return null;
+    return json.table.rows;
+  }
+
+  async function loadOldNewRows() {
+    for (const sName of OLD_NEW_SHEET_NAMES) {
+      try {
+        const rows = await readSheet(sName);
+        if (rows && rows.length) return rows;
+      } catch (e) {}
+    }
+    return [];
+  }
+
+  async function getTwoSheetDb(force = false) {
+    if (dbCache && !force) return dbCache;
+    if (inflight && !force) return inflight;
+
+    inflight = (async () => {
+      const db = {
+        stockByCode: {},
+        aliasMap: {},
+        ordersByCode: {}
+      };
+
+      const linkCodes = (codeA, codeB) => {
+        const a = norm(codeA);
+        const b = norm(codeB);
+        if (a.length < 6 && b.length < 6) return;
+        if (a.length >= 6 && !db.aliasMap[a]) db.aliasMap[a] = new Set([a]);
+        if (b.length >= 6 && !db.aliasMap[b]) db.aliasMap[b] = new Set([b]);
+        if (a.length >= 6 && b.length >= 6) {
+          db.aliasMap[a].add(b);
+          db.aliasMap[b].add(a);
+        }
+      };
+
+      const [stockRows, oldNewRows, ...orderRowsList] = await Promise.all([
+        readSheet('STOCK').then(r => r || []).catch(() => []),
+        loadOldNewRows().catch(() => []),
+        ...ORDER_SHEETS.map(name => readSheet(name).then(r => r || []).catch(() => []))
+      ]);
+
+      for (const row of stockRows) {
+        const vals = (row.c || []).map(cell => (cell && (cell.v ?? cell.f)) ?? '');
+        const codes = [];
+        let qty = 0;
+        let bin = 'NOBIN';
+
+        vals.forEach((raw, idx) => {
+          const s = String(raw ?? '').trim().toUpperCase();
+          if (!s) return;
+          if (/^G[A-Z0-9]{4,7}$/.test(s)) bin = s;
+          if ((idx === 5 || idx === 4 || idx === 6) && qty === 0) {
+            const n = Number(s.replace(/[^0-9.-]/g, ''));
+            if (!isNaN(n) && n >= 0 && n < 100000 && s.length <= 7) qty = n;
+          }
+          if (PART_RE.test(s) && s.length <= 22) codes.push(s);
+        });
+
+        if (!codes.length) continue;
+        const mainPart = codes[0];
+        for (let i = 1; i < codes.length; i++) {
+          linkCodes(mainPart, codes[i]);
+        }
+
+        codes.forEach((codeStr, idx) => {
+          const k = norm(codeStr);
+          if (k.length < 6) return;
+          const entry = {
+            partNo: mainPart,
+            matchedCode: codeStr,
+            viaAlt: idx > 0,
+            qty,
+            bin
+          };
+          if (!db.stockByCode[k] || entry.qty > db.stockByCode[k].qty) {
+            db.stockByCode[k] = entry;
+          }
+        });
+      }
+
+      for (const row of oldNewRows) {
+        const vals = (row.c || []).map(cell => (cell && (cell.v ?? cell.f)) ?? '');
+        const rowCodes = [];
+        vals.forEach(raw => {
+          const s = String(raw ?? '').trim().toUpperCase();
+          if (!s) return;
+          const matches = s.match(new RegExp(PART_RE.source, 'gi')) || [];
+          matches.forEach(m => {
+            if (!rowCodes.includes(m)) rowCodes.push(m);
+          });
+        });
+        for (let i = 0; i < rowCodes.length; i++) {
+          for (let j = i + 1; j < rowCodes.length; j++) {
+            linkCodes(rowCodes[i], rowCodes[j]);
+          }
+        }
+      }
+
+      orderRowsList.forEach((rows, sIdx) => {
+        const statusName = ORDER_SHEETS[sIdx];
+        for (const row of rows) {
+          const vals = (row.c || []).map(cell => (cell && (cell.v ?? cell.f)) ?? '');
+          const codes = [];
+          let qty = 0;
+
+          vals.forEach((raw, idx) => {
+            const s = String(raw ?? '').trim().toUpperCase();
+            if (!s) return;
+            if (PART_RE.test(s) && s.length <= 22) codes.push(s);
+            if (idx >= 5 && idx <= 9 && qty === 0) {
+              const n = Number(s.replace(/[^0-9.-]/g, ''));
+              if (!isNaN(n) && n > 0 && n < 50000 && s.length <= 7) qty = n;
+            }
+          });
+
+          codes.forEach(codeStr => {
+            const k = norm(codeStr);
+            if (k.length < 6) return;
+            if (!db.ordersByCode[k]) {
+              db.ordersByCode[k] = { partNo: codeStr, status: statusName, qty: qty || 1 };
+            }
+          });
+        }
+      });
+
+      dbCache = db;
+      inflight = null;
+      return db;
+    })();
+
+    return inflight;
+  }
+
+  function collectEquivalentKeys(rawCode, db) {
+    const base = norm(rawCode);
+    const set = new Set();
+    if (!base) return [];
+    set.add(base);
+
+    if (db.aliasMap[base]) {
+      db.aliasMap[base].forEach(ak => set.add(ak));
+    }
+
+    const allKnown = new Set([
+      ...Object.keys(db.aliasMap),
+      ...Object.keys(db.stockByCode)
+    ]);
+    allKnown.forEach(kk => {
+      if (kk.length >= 7 && (kk.startsWith(base) || base.startsWith(kk))) {
+        set.add(kk);
+        if (db.aliasMap[kk]) {
+          db.aliasMap[kk].forEach(ak => set.add(ak));
+        }
+      }
+    });
+
+    return Array.from(set);
+  }
+
+  function lookupAcrossTwoSheets(rawCode, db) {
+    const keys = collectEquivalentKeys(rawCode, db);
+    if (!keys.length || !db) return null;
+
+    const inputKey = norm(rawCode);
+    let bestStock = null;
+
+    for (const k of keys) {
+      const s = db.stockByCode[k];
+      if (s && (!bestStock || s.qty > bestStock.qty)) {
+        bestStock = {
+          ...s,
+          viaAlt: k !== inputKey || s.viaAlt
+        };
+      }
+    }
+
+    let orderHit = null;
+    for (const k of keys) {
+      if (db.ordersByCode[k]) {
+        orderHit = {
+          ...db.ordersByCode[k],
+          viaAlt: k !== inputKey
+        };
+        break;
+      }
+    }
+
+    return { stk: bestStock, ord: orderHit };
+  }
+
+  function findPartCodeNear(el) {
+    let cur = el.parentElement;
+    for (let i = 0; i < 5 && cur; i++) {
+      const txt = String(cur.textContent || '');
+      if (txt.includes('Battery & Tyre Conversion') || txt.includes('Choose file')) return '';
+      const m = txt.match(PART_RE);
+      if (m) return m[1];
+      cur = cur.parentElement;
+    }
+    return '';
+  }
+
+  async function syncAdvisorCardsV8(force = false) {
+    const db = await getTwoSheetDb(force);
+    const nodes = document.querySelectorAll('span, div, button, a, b, strong');
+
+    for (let i = 0; i < nodes.length; i++) {
+      const el = nodes[i];
+      if (el.children.length > 2) continue;
+
+      const rawText = String(el.textContent || '').trim();
+      if (!rawText || rawText.length > 75) continue;
+      const upper = rawText.toUpperCase();
+
+      if (!upper.includes('PENDING') && !upper.includes('NOT ORDERED')) continue;
+
+      const partCode = findPartCodeNear(el);
+      if (!partCode) continue;
+
+      const found = lookupAcrossTwoSheets(partCode, db);
+      if (!found) continue;
+
+      const { stk, ord } = found;
+      if (ord) {
+        const altTag = ord.viaAlt ? 'Old/New · ' : '';
+        el.textContent = `${altTag}${ord.status} · Part: ${ord.partNo} · Qty: ${ord.qty}`;
+        el.style.background = ord.status.includes('INVOICE') ? '#dbeafe' : '#ffedd5';
+        el.style.color = ord.status.includes('INVOICE') ? '#1d4ed8' : '#c2410c';
+        el.style.fontWeight = '800';
+      } else if (stk && stk.qty > 0) {
+        const altTag = stk.viaAlt ? 'Old/New · ' : '';
+        el.textContent = `${altTag}IN STOCK · Part: ${stk.partNo} · Qty: ${stk.qty} (${stk.bin})`;
+        el.style.background = '#dcfce7';
+        el.style.color = '#15803d';
+        el.style.fontWeight = '800';
+      }
+    }
+  }
+
+  ['renderAdvisors', 'refreshAdvisors', 'loadAdvisors', 'renderAdvisorList'].forEach(fnName => {
+    if (typeof window[fnName] === 'function') {
+      const orig = window[fnName];
+      window[fnName] = function(...args) {
+        const res = orig.apply(this, args);
+        setTimeout(() => syncAdvisorCardsV8(false), 120);
+        return res;
+      };
+    }
+  });
+
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const label = String(btn.textContent || '').toUpperCase();
+    if (label.includes('REFRESH')) {
+      setTimeout(() => syncAdvisorCardsV8(true), 300);
+    } else if (label.includes('ADVISOR') || label.includes('SAVE & TRACK')) {
+      setTimeout(() => syncAdvisorCardsV8(false), 300);
+    }
+  });
+
+  setTimeout(() => syncAdvisorCardsV8(true), 700);
+  setInterval(() => syncAdvisorCardsV8(false), 1800);
+})();
+                            
   </script>
 </body></html>
