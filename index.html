@@ -5339,6 +5339,282 @@ const detailsHTML = Object.entries(item.details || {})
   setTimeout(() => syncBadgesV15(true), 600);
   setInterval(() => syncBadgesV15(false), 1800);
 })();
-    
+    // =========================================================================
+// ADVISOR BADGE SYNC V17: EXACT ROOT PART NUMBER MATCH (SAME AS PART SEARCH)
+// =========================================================================
+(function initAdvisorSearchRootV17() {
+  if (window.__advSearchRootV17) return;
+  window.__advSearchRootV17 = true;
+
+  for (let id = 1; id < 400; id++) {
+    try { clearInterval(id); } catch (e) {}
+  }
+
+  const SHEET_ID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
+  const ORDER_SHEETS = [
+    'BACK ORDER',
+    'ALLOCATION',
+    'INVOICE',
+    'UNDER PICKING',
+    'UNDER INVOICE'
+  ];
+
+  const norm = v => String(v || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const CODE_RE = /\b([0-9A-Z]{5,}[M\-][0-9A-Z\-]{2,}|[0-9]{5}[A-Z0-9]{4,8})\b/gi;
+
+  let rootIndex = null;
+  let inflight = null;
+
+  async function fetchRows(sheetName) {
+    try {
+      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      const txt = await res.text();
+      const match = txt.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/);
+      const json = JSON.parse(match ? match[1] : txt.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, ''));
+      if (!json || json.status === 'error' || !json.table || !Array.isArray(json.table.rows)) return [];
+      return json.table.rows;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  async function buildExactRootIndex(force = false) {
+    if (rootIndex && !force) return rootIndex;
+    if (inflight && !force) return inflight;
+
+    inflight = (async () => {
+      const idx = {
+        partToRoot: {},     // cleanPart -> cleanRoot
+        rootToParts: {},    // cleanRoot -> array of cleanPart
+        stockByPart: {},    // cleanPart -> { partNo, rootNo, qty, bin, bo, allo, up, inv }
+        ordersByPart: {}    // cleanPart -> { partNo, status, qty }
+      };
+
+      const registerPair = (partRaw, rootRaw) => {
+        const pK = norm(partRaw);
+        const rK = norm(rootRaw);
+        if (pK.length < 6) return;
+        const effectiveRoot = rK.length >= 6 ? rK : pK;
+        idx.partToRoot[pK] = effectiveRoot;
+        if (!idx.rootToParts[effectiveRoot]) idx.rootToParts[effectiveRoot] = [];
+        if (!idx.rootToParts[effectiveRoot].includes(pK)) {
+          idx.rootToParts[effectiveRoot].push(pK);
+        }
+      };
+
+      const [stockRows, oldNewRows, ...orderLists] = await Promise.all([
+        fetchRows('STOCK'),
+        fetchRows('OLD,NEW PART'),
+        ...ORDER_SHEETS.map(s => fetchRows(s))
+      ]);
+
+      // 1. STOCK sheet: Col A = Part number, Col B = Root Part Num, Col F = Current Stock, Col G = Bin Location
+      (stockRows || []).forEach(row => {
+        const c = row.c || [];
+        const val = i => (c[i] && (c[i].v ?? c[i].f)) ?? '';
+        const partRaw = String(val(0) || val(12) || '').trim().toUpperCase();
+        const rootRaw = String(val(1) || '').trim().toUpperCase();
+        const pK = norm(partRaw);
+        if (pK.length < 6) return;
+
+        registerPair(partRaw, rootRaw);
+
+        const qty = Number(String(val(5) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+        const bin = String(val(6) || 'NOBIN').trim().toUpperCase() || 'NOBIN';
+        const bo = Number(String(val(8) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+        const allo = Number(String(val(9) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+        const up = Number(String(val(10) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+        const inv = Number(String(val(11) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+
+        const rec = { partNo: partRaw, rootNo: rootRaw, qty, bin, bo, allo, up, inv };
+        if (!idx.stockByPart[pK] || rec.qty > idx.stockByPart[pK].qty) {
+          idx.stockByPart[pK] = rec;
+        }
+      });
+
+      // 2. OLD,NEW PART sheet: Col A = PART_NUM, Col B = ROOT_PART_NUM
+      (oldNewRows || []).forEach(row => {
+        const c = row.c || [];
+        const val = i => (c[i] && (c[i].v ?? c[i].f)) ?? '';
+        const partRaw = String(val(0) || '').trim().toUpperCase();
+        const rootRaw = String(val(1) || '').trim().toUpperCase();
+        if (norm(partRaw).length >= 6) {
+          registerPair(partRaw, rootRaw);
+        }
+      });
+
+      // 3. Order sheets: exact part match
+      orderLists.forEach((rows, sIdx) => {
+        const statusLabel = ORDER_SHEETS[sIdx];
+        (rows || []).forEach(row => {
+          const c = row.c || [];
+          const val = i => (c[i] && (c[i].v ?? c[i].f)) ?? '';
+          const cells = c.map((_, i) => String(val(i) ?? '').trim().toUpperCase());
+          let pCode = '';
+          let qty = 0;
+
+          cells.forEach((s, cIdx) => {
+            if (!pCode && CODE_RE.test(s) && s.length <= 22) {
+              const m = s.match(CODE_RE);
+              if (m) pCode = m[1].toUpperCase();
+            }
+            if (cIdx >= 4 && cIdx <= 9 && qty === 0) {
+              const n = Number(s.replace(/[^0-9.-]/g, ''));
+              if (!isNaN(n) && n > 0 && n < 50000 && s.length <= 7) qty = n;
+            }
+          });
+
+          const k = norm(pCode);
+          if (k.length < 6) return;
+          if (!idx.ordersByPart[k]) {
+            idx.ordersByPart[k] = { partNo: pCode, status: statusLabel, qty: qty || 1 };
+          }
+        });
+      });
+
+      rootIndex = idx;
+      inflight = null;
+      return idx;
+    })();
+
+    return inflight;
+  }
+
+  function matchByExactRoot(rawPart, idx) {
+    const baseK = norm(rawPart);
+    if (!baseK || baseK.length < 6 || !idx) return null;
+
+    // Find exact root key from partToRoot, or if rawPart itself matches a root key
+    const rootK = idx.partToRoot[baseK] || (idx.rootToParts[baseK] ? baseK : '');
+    const groupKeys = [];
+    if (rootK && Array.isArray(idx.rootToParts[rootK])) {
+      idx.rootToParts[rootK].forEach(pk => {
+        if (!groupKeys.includes(pk)) groupKeys.push(pk);
+      });
+    }
+    if (!groupKeys.includes(baseK)) groupKeys.unshift(baseK);
+
+    // 1. Check STOCK across exact root group (prefer exact part first if in stock, then root-matched stock part)
+    let bestStock = null;
+    for (const k of groupKeys) {
+      const s = idx.stockByPart[k];
+      if (s && s.qty > 0) {
+        const isRootMatch = k !== baseK;
+        if (!bestStock || (!isRootMatch && bestStock.isRootMatch) || (isRootMatch === bestStock.isRootMatch && s.qty > bestStock.qty)) {
+          bestStock = { ...s, isRootMatch };
+        }
+      }
+    }
+    if (bestStock) return { type: 'STOCK', info: bestStock };
+
+    // 2. Check Order sheets or STOCK pipeline columns across exact root group
+    for (const k of groupKeys) {
+      if (idx.ordersByPart[k]) {
+        return { type: 'ORDER', info: { ...idx.ordersByPart[k], isRootMatch: k !== baseK } };
+      }
+      const s = idx.stockByPart[k];
+      if (s) {
+        const isRootMatch = k !== baseK;
+        if (s.inv > 0) return { type: 'ORDER', info: { partNo: s.partNo, status: 'INVOICE', qty: s.inv, isRootMatch } };
+        if (s.up > 0) return { type: 'ORDER', info: { partNo: s.partNo, status: 'UNDER PICKING', qty: s.up, isRootMatch } };
+        if (s.allo > 0) return { type: 'ORDER', info: { partNo: s.partNo, status: 'ALLOCATION', qty: s.allo, isRootMatch } };
+        if (s.bo > 0) return { type: 'ORDER', info: { partNo: s.partNo, status: 'BACK ORDER', qty: s.bo, isRootMatch } };
+      }
+    }
+
+    return null;
+  }
+
+  function getRowPart(el) {
+    let cur = el.parentElement;
+    for (let d = 0; d < 5 && cur; d++) {
+      const txt = String(cur.textContent || '');
+      if (txt.includes('Battery & Tyre Conversion') || txt.includes('Choose file')) return '';
+      const m = txt.match(CODE_RE);
+      if (m) return m[1].toUpperCase();
+      cur = cur.parentElement;
+    }
+    return '';
+  }
+
+  async function syncBySearchRootV17(force = false) {
+    const idx = await buildExactRootIndex(force);
+    const els = document.querySelectorAll('span, div, button, a, b, strong');
+
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i];
+      if (el.children.length > 2) continue;
+
+      const rawText = String(el.textContent || '').trim();
+      if (!rawText || rawText.length > 95) continue;
+      const up = rawText.toUpperCase();
+
+      const isBadge =
+        up.includes('PENDING') ||
+        up.includes('NOT ORDERED') ||
+        up.includes('IN STOCK') ||
+        up.includes('BACK ORDER') ||
+        up.includes('ALLOCATION') ||
+        up.includes('INVOICE') ||
+        up.includes('UNDER PICKING');
+
+      if (!isBadge) continue;
+      if (up.includes('BIN LOCATION:') || up.includes('DISPATCHED')) continue;
+
+      const rowPart = getRowPart(el);
+      if (!rowPart) continue;
+      if (norm(rowPart) === '09262M30182' && up.includes('5 NOS')) continue;
+
+      const hit = matchByExactRoot(rowPart, idx);
+      if (hit && hit.type === 'STOCK') {
+        const s = hit.info;
+        const prefix = s.isRootMatch ? `Root (${s.partNo}) · ` : '';
+        const nextText = `${prefix}IN STOCK · Part: ${s.partNo} · Qty: ${s.qty} (${s.bin})`;
+        if (rawText !== nextText) {
+          el.textContent = nextText;
+          el.style.background = '#dcfce7';
+          el.style.color = '#15803d';
+          el.style.fontWeight = '800';
+        }
+      } else if (hit && hit.type === 'ORDER') {
+        const o = hit.info;
+        const prefix = o.isRootMatch ? `Root (${o.partNo}) · ` : '';
+        const nextText = `${prefix}${o.status} · Part: ${o.partNo} · Qty: ${o.qty}`;
+        if (rawText !== nextText) {
+          el.textContent = nextText;
+          el.style.background = o.status.includes('INVOICE') ? '#dbeafe' : '#ffedd5';
+          el.style.color = o.status.includes('INVOICE') ? '#1d4ed8' : '#c2410c';
+          el.style.fontWeight = '800';
+        }
+      } else if (
+        up.includes('IN STOCK · PART: 12623M60A10') ||
+        up.includes('IN STOCK · PART: 23820M74T00') ||
+        up.includes('IN STOCK · PART: 09262M30082')
+      ) {
+        el.textContent = 'PENDING / NOT ORDERED';
+        el.style.background = '#fee2e2';
+        el.style.color = '#b91c1c';
+        el.style.fontWeight = '700';
+      }
+    }
+  }
+
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const label = String(btn.textContent || '').toUpperCase();
+    if (label.includes('REFRESH')) {
+      setTimeout(() => syncBySearchRootV17(true), 250);
+    } else if (label.includes('ADVISOR') || label.includes('STOCK') || label.includes('SAVE & TRACK')) {
+      setTimeout(() => syncBySearchRootV17(false), 250);
+    }
+  });
+
+  setTimeout(() => syncBySearchRootV17(true), 650);
+  setInterval(() => syncBySearchRootV17(false), 2200);
+})();
+  
   </script>
 </body></html>
