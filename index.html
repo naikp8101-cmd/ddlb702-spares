@@ -4593,6 +4593,282 @@ const detailsHTML = Object.entries(item.details || {})
   setTimeout(() => syncStrictBadges(true), 700);
   setInterval(() => syncStrictBadges(false), 1800);
 })();
-            
+    // =========================================================================
+// ADVISOR BADGE SYNC V13: STRICT EXACT + ROOT + OLD/NEW ONLY (CLEAN FIX)
+// =========================================================================
+(function initAdvisorCleanExactV13() {
+  if (window.__advCleanExactV13) return;
+  window.__advCleanExactV13 = true;
+
+  const SHEET_ID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
+  const OLD_NEW_TABS = [
+    'OLD NEW PART',
+    'OLD_NEW_PART',
+    'OLD NEW PARTS',
+    'OLD_NEW_PARTS',
+    'OLD NEW',
+    'OLD_NEW',
+    'PART CONVERSION',
+    'SUPERSEDED'
+  ];
+  const ORDER_TABS = [
+    'BACK ORDER',
+    'ALLOCATION',
+    'INVOICE',
+    'UNDER PICKING',
+    'UNDER INVOICE'
+  ];
+
+  const norm = v => String(v || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const CODE_RE = /\b([0-9A-Z]{5,}[M\-][0-9A-Z\-]{2,}|[0-9]{5}[A-Z0-9]{4,8})\b/gi;
+
+  let dbCache = null;
+  let inflight = null;
+
+  async function fetchSheetRows(sheetName) {
+    try {
+      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      const txt = await res.text();
+      const match = txt.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/);
+      const json = JSON.parse(match ? match[1] : txt.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, ''));
+      if (!json || json.status === 'error' || !json.table || !Array.isArray(json.table.rows)) return [];
+      return json.table.rows;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  async function loadCleanDb(force = false) {
+    if (dbCache && !force) return dbCache;
+    if (inflight && !force) return inflight;
+
+    inflight = (async () => {
+      const db = {
+        stockByExact: {},
+        aliases: {},
+        ordersByExact: {}
+      };
+
+      const linkExact = (aRaw, bRaw) => {
+        const a = norm(aRaw);
+        const b = norm(bRaw);
+        if (a.length >= 7 && !db.aliases[a]) db.aliases[a] = new Set([a]);
+        if (b.length >= 7 && !db.aliases[b]) db.aliases[b] = new Set([b]);
+        if (a.length >= 7 && b.length >= 7) {
+          db.aliases[a].add(b);
+          db.aliases[b].add(a);
+        }
+      };
+
+      const [stockRows, oldNewLists, orderLists] = await Promise.all([
+        fetchSheetRows('STOCK'),
+        Promise.all(OLD_NEW_TABS.map(t => fetchSheetRows(t))),
+        Promise.all(ORDER_TABS.map(t => fetchSheetRows(t)))
+      ]);
+
+      (stockRows || []).forEach(row => {
+        const vals = (row.c || []).map(cell => (cell && (cell.v ?? cell.f)) ?? '');
+        const partRaw = String(vals[0] || vals[12] || '').trim().toUpperCase();
+        const rootRaw = String(vals[1] || '').trim().toUpperCase();
+        const qty = Number(String(vals[5] ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+        const bin = String(vals[6] || 'NOBIN').trim().toUpperCase() || 'NOBIN';
+
+        if (partRaw && rootRaw) linkExact(partRaw, rootRaw);
+
+        [partRaw, rootRaw].forEach((codeStr, idx) => {
+          const k = norm(codeStr);
+          if (k.length < 7) return;
+          const rec = {
+            partNo: partRaw || rootRaw,
+            matchedCode: codeStr,
+            viaRootOrAlt: idx > 0,
+            qty,
+            bin
+          };
+          if (!db.stockByExact[k] || rec.qty > db.stockByExact[k].qty) {
+            db.stockByExact[k] = rec;
+          }
+        });
+      });
+
+      oldNewLists.forEach(rows => {
+        (rows || []).forEach(row => {
+          const vals = (row.c || []).map(cell => (cell && (cell.v ?? cell.f)) ?? '');
+          const codes = [];
+          vals.forEach(raw => {
+            const s = String(raw ?? '').trim().toUpperCase();
+            if (!s) return;
+            (s.match(CODE_RE) || []).forEach(m => {
+              if (!codes.includes(m)) codes.push(m);
+            });
+          });
+          for (let i = 0; i < codes.length; i++) {
+            for (let j = i + 1; j < codes.length; j++) {
+              linkExact(codes[i], codes[j]);
+            }
+          }
+        });
+      });
+
+      orderLists.forEach((rows, sIdx) => {
+        const statusLabel = ORDER_TABS[sIdx];
+        (rows || []).forEach(row => {
+          const vals = (row.c || []).map(cell => (cell && (cell.v ?? cell.f)) ?? '');
+          const codes = [];
+          let qty = 0;
+          vals.forEach((raw, idx) => {
+            const s = String(raw ?? '').trim().toUpperCase();
+            if (!s) return;
+            (s.match(CODE_RE) || []).forEach(m => {
+              if (!codes.includes(m)) codes.push(m);
+            });
+            if (idx >= 4 && idx <= 9 && qty === 0) {
+              const n = Number(s.replace(/[^0-9.-]/g, ''));
+              if (!isNaN(n) && n > 0 && n < 50000 && s.length <= 8) qty = n;
+            }
+          });
+          codes.forEach(codeStr => {
+            const k = norm(codeStr);
+            if (k.length < 7) return;
+            if (!db.ordersByExact[k]) {
+              db.ordersByExact[k] = { partNo: codeStr, status: statusLabel, qty: qty || 1 };
+            }
+          });
+        });
+      });
+
+      dbCache = db;
+      inflight = null;
+      return db;
+    })();
+
+    return inflight;
+  }
+
+  function lookupExactOnly(rawCode, db) {
+    const base = norm(rawCode);
+    if (!base || base.length < 7 || !db) return null;
+
+    const exactKeys = new Set([base]);
+    if (db.aliases[base]) {
+      db.aliases[base].forEach(k => exactKeys.add(k));
+    }
+
+    let stk = null;
+    exactKeys.forEach(k => {
+      const s = db.stockByExact[k];
+      if (s && (!stk || s.qty > stk.qty)) {
+        stk = { ...s, isAlias: k !== base || s.viaRootOrAlt };
+      }
+    });
+
+    let ord = null;
+    for (const k of exactKeys) {
+      if (db.ordersByExact[k]) {
+        ord = { ...db.ordersByExact[k], isAlias: k !== base };
+        break;
+      }
+    }
+
+    return { stk, ord };
+  }
+
+  function extractCardPart(el) {
+    let cur = el.parentElement;
+    for (let d = 0; d < 5 && cur; d++) {
+      const txt = String(cur.textContent || '');
+      if (txt.includes('Battery & Tyre Conversion') || txt.includes('Choose file')) return '';
+      const matches = txt.match(CODE_RE) || [];
+      for (const m of matches) {
+        const clean = norm(m);
+        if (clean.length >= 7 && !/^(PENDING|NOTORDERED|NOTIN2SHEETS|INSTOCK|INVOICE|BACKORDER|ALLOCATION|DISPATCHED|ERTIGA|BALENO|SCROSS)$/.test(clean)) {
+          return m;
+        }
+      }
+      cur = cur.parentElement;
+    }
+    return '';
+  }
+
+  async function syncCleanV13(force = false) {
+    const db = await loadCleanDb(force);
+    const nodes = document.querySelectorAll('span, div, button, a, b, strong');
+
+    for (let i = 0; i < nodes.length; i++) {
+      const el = nodes[i];
+      if (el.children.length > 2) continue;
+
+      const rawText = String(el.textContent || '').trim();
+      if (!rawText || rawText.length > 90) continue;
+      const up = rawText.toUpperCase();
+
+      const isBadge =
+        up.includes('PENDING') ||
+        up.includes('NOT ORDERED') ||
+        up.includes('NOTIN2SHEETS') ||
+        up.includes('IN STOCK') ||
+        up.includes('BACK ORDER') ||
+        up.includes('ALLOCATION') ||
+        up.includes('INVOICE');
+
+      if (!isBadge) continue;
+      if (up.includes('BIN LOCATION:') || up.includes('DISPATCHED')) continue;
+
+      const partCode = extractCardPart(el);
+      if (!partCode) continue;
+
+      const hit = lookupExactOnly(partCode, db);
+      const { stk, ord } = hit || {};
+
+      if (stk && stk.qty > 0) {
+        const tag = stk.isAlias ? `Linked (${stk.partNo}) · ` : '';
+        const nextText = `${tag}IN STOCK · Part: ${stk.partNo} · Qty: ${stk.qty} (${stk.bin})`;
+        if (rawText !== nextText) {
+          el.textContent = nextText;
+          el.style.background = '#dcfce7';
+          el.style.color = '#15803d';
+          el.style.fontWeight = '800';
+        }
+      } else if (ord) {
+        const tag = ord.isAlias ? `Linked (${ord.partNo}) · ` : '';
+        const nextText = `${tag}${ord.status} · Part: ${ord.partNo} · Qty: ${ord.qty}`;
+        if (rawText !== nextText) {
+          el.textContent = nextText;
+          el.style.background = ord.status.includes('INVOICE') ? '#dbeafe' : '#ffedd5';
+          el.style.color = ord.status.includes('INVOICE') ? '#1d4ed8' : '#c2410c';
+          el.style.fontWeight = '800';
+        }
+      } else if (
+        up.includes('NOTIN2SHEETS') ||
+        up.includes('IN STOCK · PART:') ||
+        up.includes('BACK ORDER · PART:') ||
+        up.includes('ALLOCATION · PART:') ||
+        up.includes('INVOICE · PART:')
+      ) {
+        el.textContent = 'PENDING / NOT ORDERED';
+        el.style.background = '#fee2e2';
+        el.style.color = '#b91c1c';
+        el.style.fontWeight = '700';
+      }
+    }
+  }
+
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const t = String(btn.textContent || '').toUpperCase();
+    if (t.includes('REFRESH')) {
+      setTimeout(() => syncCleanV13(true), 300);
+    } else if (t.includes('ADVISOR') || t.includes('STOCK') || t.includes('SAVE & TRACK')) {
+      setTimeout(() => syncCleanV13(false), 300);
+    }
+  });
+
+  setTimeout(() => syncCleanV13(true), 700);
+  setInterval(() => syncCleanV13(false), 1800);
+})();
+    
   </script>
 </body></html>
