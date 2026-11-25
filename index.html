@@ -5064,6 +5064,281 @@ const detailsHTML = Object.entries(item.details || {})
   setTimeout(() => syncExactBadgesV14(true), 700);
   setInterval(() => syncExactBadgesV14(false), 2500);
 })();
+    // =========================================================================
+// ADVISOR BADGE SYNC V15: EXACT "OLD,NEW PART" ROOT-BRIDGE + "STOCK" SYNC
+// =========================================================================
+(function initAdvisorOldNewRootV15() {
+  if (window.__advOldNewRootV15) return;
+  window.__advOldNewRootV15 = true;
+
+  const SHEET_ID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
+  const norm = v => String(v || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const PART_RE = /\b([0-9A-Z]{4,}[M\-][0-9A-Z\-]{2,}|[0-9]{5}[A-Z0-9]{3,9})\b/i;
+
+  let dbCache = null;
+  let inflight = null;
+
+  async function fetchSheet(sheetName) {
+    try {
+      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      const txt = await res.text();
+      const match = txt.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/);
+      const json = JSON.parse(match ? match[1] : txt.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, ''));
+      if (!json || json.status === 'error' || !json.table || !Array.isArray(json.table.rows)) return [];
+      return json.table.rows;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  async function buildExactOldNewStockDb(force = false) {
+    if (dbCache && !force) return dbCache;
+    if (inflight && !force) return inflight;
+
+    inflight = (async () => {
+      const db = {
+        partToRoot: {},     // cleanPart -> cleanRoot
+        rootToParts: {},    // cleanRoot -> Set of { partNo, isNew, sheetQty, sheetBin }
+        stockByPart: {},    // cleanPart -> { partNo, rootNo, qty, bin, bo, allo, up, inv }
+        orderStatusTab: {}  // cleanPart -> { partNo, status, qty }
+      };
+
+      const addRootLink = (partRaw, rootRaw, meta = {}) => {
+        const pK = norm(partRaw);
+        const rK = norm(rootRaw);
+        if (pK.length >= 6 && rK.length >= 6) {
+          db.partToRoot[pK] = rK;
+          if (!db.rootToParts[rK]) db.rootToParts[rK] = [];
+          const existing = db.rootToParts[rK].find(x => norm(x.partNo) === pK);
+          if (!existing) {
+            db.rootToParts[rK].push({
+              partNo: String(partRaw).trim().toUpperCase(),
+              isNew: Boolean(meta.isNew),
+              qty: Number(meta.qty) || 0,
+              bin: String(meta.bin || 'NOBIN').trim().toUpperCase() || 'NOBIN'
+            });
+          } else {
+            if (meta.isNew) existing.isNew = true;
+            if ((Number(meta.qty) || 0) > existing.qty) {
+              existing.qty = Number(meta.qty) || 0;
+              if (meta.bin && meta.bin !== 'NOBIN') existing.bin = String(meta.bin).trim().toUpperCase();
+            }
+          }
+        }
+      };
+
+      const [stockRows, oldNewRows, orderStatusRows] = await Promise.all([
+        fetchSheet('STOCK'),
+        fetchSheet('OLD,NEW PART'),
+        fetchSheet('ORDER PARTS STATUS')
+      ]);
+
+      // 1. Parse STOCK tab (Col A=Part, Col B=Root, Col F=Qty, Col G=Bin, Col I=B/O, Col J=ALLO, Col K=U/P, Col L=INV)
+      stockRows.forEach(row => {
+        const c = row.c || [];
+        const val = idx => (c[idx] && (c[idx].v ?? c[idx].f)) ?? '';
+        const partRaw = String(val(0) || val(12) || '').trim().toUpperCase();
+        const rootRaw = String(val(1) || '').trim().toUpperCase();
+        const pK = norm(partRaw);
+        if (pK.length < 6) return;
+
+        const qty = Number(String(val(5) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+        const bin = String(val(6) || 'NOBIN').trim().toUpperCase() || 'NOBIN';
+        const bo = Number(String(val(8) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+        const allo = Number(String(val(9) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+        const up = Number(String(val(10) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+        const inv = Number(String(val(11) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+
+        const rec = { partNo: partRaw, rootNo: rootRaw, qty, bin, bo, allo, up, inv };
+        if (!db.stockByPart[pK] || qty > db.stockByPart[pK].qty) {
+          db.stockByPart[pK] = rec;
+        }
+        if (rootRaw) {
+          addRootLink(partRaw, rootRaw, { qty, bin });
+        }
+      });
+
+      // 2. Parse "OLD,NEW PART" tab (Col A=PART_NUM, Col B=ROOT_PART_NUM, Col F=BIN, Col J=CURRENT STOCK, Col U=Old/New Part)
+      oldNewRows.forEach(row => {
+        const c = row.c || [];
+        const val = idx => (c[idx] && (c[idx].v ?? c[idx].f)) ?? '';
+        const partRaw = String(val(0) || '').trim().toUpperCase();
+        const rootRaw = String(val(1) || '').trim().toUpperCase();
+        const pK = norm(partRaw);
+        const rK = norm(rootRaw);
+        if (pK.length < 6) return;
+
+        const bin = String(val(5) || 'NOBIN').trim().toUpperCase() || 'NOBIN';
+        const qty = Number(String(val(9) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+        const tagU = String(val(20) || '').trim().toUpperCase();
+        const isNew = tagU.includes('NEW');
+
+        if (rK.length >= 6) {
+          addRootLink(partRaw, rootRaw, { isNew, qty, bin });
+        }
+
+        // Also store fallback stock if part has stock in OLD,NEW PART sheet
+        if (!db.stockByPart[pK] && qty > 0) {
+          db.stockByPart[pK] = { partNo: partRaw, rootNo: rootRaw, qty, bin, bo: 0, allo: 0, up: 0, inv: 0 };
+        } else if (db.stockByPart[pK] && db.stockByPart[pK].qty === 0 && qty > 0) {
+          db.stockByPart[pK].qty = qty;
+          if (bin !== 'NOBIN') db.stockByPart[pK].bin = bin;
+        }
+      });
+
+      // 3. Parse "ORDER PARTS STATUS" tab if present
+      orderStatusRows.forEach(row => {
+        const c = row.c || [];
+        const val = idx => (c[idx] && (c[idx].v ?? c[idx].f)) ?? '';
+        const cells = c.map((_, i) => String(val(i) ?? '').trim().toUpperCase());
+        let pCode = '';
+        let statusText = '';
+        let qty = 0;
+
+        cells.forEach((s, idx) => {
+          if (!pCode && PART_RE.test(s) && s.length <= 22) {
+            const m = s.match(PART_RE);
+            if (m) pCode = m[1].toUpperCase();
+          }
+          if (!statusText && (s.includes('BACK') || s.includes('ALLOC') || s.includes('PICK') || s.includes('INVOIC') || s.includes('TRANSIT') || s.includes('DISPATCH'))) {
+            statusText = s;
+          }
+          if (idx >= 3 && idx <= 10 && qty === 0) {
+            const n = Number(s.replace(/[^0-9.-]/g, ''));
+            if (!isNaN(n) && n > 0 && n < 50000 && s.length <= 7) qty = n;
+          }
+        });
+
+        const k = norm(pCode);
+        if (k.length >= 6 && statusText && !db.orderStatusTab[k]) {
+          db.orderStatusTab[k] = { partNo: pCode, status: statusText, qty: qty || 1 };
+        }
+      });
+
+      dbCache = db;
+      inflight = null;
+      return db;
+    })();
+
+    return inflight;
+  }
+
+  function resolvePartViaOldNewAndStock(rawPart, db) {
+    const baseK = norm(rawPart);
+    if (!baseK || baseK.length < 6 || !db) return null;
+
+    // Collect exact part + all parts sharing the same ROOT_PART_NUM in OLD,NEW PART / STOCK
+    const candidateKeys = new Set([baseK]);
+    const rootK = db.partToRoot[baseK];
+    if (rootK && db.rootToParts[rootK]) {
+      db.rootToParts[rootK].forEach(item => candidateKeys.add(norm(item.partNo)));
+    }
+    // Also if rawPart itself is a Root number
+    if (db.rootToParts[baseK]) {
+      db.rootToParts[baseK].forEach(item => candidateKeys.add(norm(item.partNo)));
+    }
+
+    // 1. Check direct or root-linked stock (prefer New Part / highest stock)
+    let bestStock = null;
+    candidateKeys.forEach(k => {
+      const s = db.stockByPart[k];
+      if (s && s.qty > 0) {
+        const isLinked = k !== baseK;
+        if (!bestStock || (!isLinked && bestStock.isLinked) || (isLinked === bestStock.isLinked && s.qty > bestStock.qty)) {
+          bestStock = { ...s, isLinked };
+        }
+      }
+    });
+
+    if (bestStock) return { type: 'STOCK', data: bestStock };
+
+    // 2. Check STOCK pipeline columns (INV > U/P > ALLO > B/O) for exact or root-linked parts
+    for (const k of candidateKeys) {
+      const s = db.stockByPart[k];
+      if (!s) continue;
+      const isLinked = k !== baseK;
+      if (s.inv > 0) return { type: 'PIPE', data: { partNo: s.partNo, status: 'INVOICE', qty: s.inv, isLinked } };
+      if (s.up > 0) return { type: 'PIPE', data: { partNo: s.partNo, status: 'UNDER PICKING', qty: s.up, isLinked } };
+      if (s.allo > 0) return { type: 'PIPE', data: { partNo: s.partNo, status: 'ALLOCATION', qty: s.allo, isLinked } };
+      if (s.bo > 0) return { type: 'PIPE', data: { partNo: s.partNo, status: 'BACK ORDER', qty: s.bo, isLinked } };
+    }
+
+    // 3. Check ORDER PARTS STATUS tab
+    for (const k of candidateKeys) {
+      if (db.orderStatusTab[k]) {
+        return { type: 'PIPE', data: { ...db.orderStatusTab[k], isLinked: k !== baseK } };
+      }
+    }
+
+    return null;
+  }
+
+  function findRowPartNumber(el) {
+    let cur = el.parentElement;
+    for (let d = 0; d < 5 && cur; d++) {
+      const txt = String(cur.textContent || '');
+      if (txt.includes('Battery & Tyre Conversion') || txt.includes('Choose file')) return '';
+      const m = txt.match(PART_RE);
+      if (m) return m[1].toUpperCase();
+      cur = cur.parentElement;
+    }
+    return '';
+  }
+
+  async function syncBadgesV15(force = false) {
+    const db = await buildExactOldNewStockDb(force);
+    const els = document.querySelectorAll('span, div, button, a, b, strong');
+
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i];
+      if (el.children.length > 2) continue;
+
+      const rawText = String(el.textContent || '').trim();
+      if (!rawText || rawText.length > 95) continue;
+      const up = rawText.toUpperCase();
+
+      if (!up.includes('PENDING') && !up.includes('NOT ORDERED')) continue;
+
+      const rowPart = findRowPartNumber(el);
+      if (!rowPart) continue;
+
+      const hit = resolvePartViaOldNewAndStock(rowPart, db);
+      if (!hit) continue;
+
+      if (hit.type === 'STOCK') {
+        const s = hit.data;
+        const prefix = s.isLinked ? `New/Alt (${s.partNo}) · ` : '';
+        el.textContent = `${prefix}IN STOCK · Part: ${s.partNo} · Qty: ${s.qty} (${s.bin})`;
+        el.style.background = '#dcfce7';
+        el.style.color = '#15803d';
+        el.style.fontWeight = '800';
+      } else if (hit.type === 'PIPE') {
+        const p = hit.data;
+        const prefix = p.isLinked ? `New/Alt (${p.partNo}) · ` : '';
+        el.textContent = `${prefix}${p.status} · Part: ${p.partNo} · Qty: ${p.qty}`;
+        el.style.background = p.status.includes('INVOICE') ? '#dbeafe' : '#ffedd5';
+        el.style.color = p.status.includes('INVOICE') ? '#1d4ed8' : '#c2410c';
+        el.style.fontWeight = '800';
+      }
+    }
+  }
+
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const label = String(btn.textContent || '').toUpperCase();
+    if (label.includes('REFRESH')) {
+      setTimeout(() => syncBadgesV15(true), 250);
+    } else if (label.includes('ADVISOR') || label.includes('STOCK') || label.includes('SAVE & TRACK')) {
+      setTimeout(() => syncBadgesV15(false), 250);
+    }
+  });
+
+  setTimeout(() => syncBadgesV15(true), 600);
+  setInterval(() => syncBadgesV15(false), 1800);
+})();
     
   </script>
 </body></html>
