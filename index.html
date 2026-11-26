@@ -2407,6 +2407,286 @@ const detailsHTML = Object.entries(item.details || {})
   fixOrderInvoiceDatesInDOM();
   renderAuditUI();
 })();
-  
+  // =========================================================================
+// ADVISOR BADGE SYNC V18: IN-STOCK = ROOT MATCH | ORDER STATUS = EXACT PART
+// =========================================================================
+(function initAdvisorRootStockExactOrderV18() {
+  if (window.__advRootStockExactOrderV18) return;
+  window.__advRootStockExactOrderV18 = true;
+
+  for (let id = 1; id < 500; id++) {
+    try { clearInterval(id); } catch (e) {}
+  }
+
+  const SHEET_ID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
+  const norm = v => String(v || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const PART_RE = /\b([0-9A-Z]{4,}[M\-][0-9A-Z\-]{2,}|[0-9]{5}[A-Z0-9]{3,9})\b/i;
+
+  let dbV18 = null;
+  let loadingV18 = null;
+
+  async function readSheetGviz(sheetName) {
+    try {
+      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      const txt = await res.text();
+      const match = txt.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/);
+      const json = JSON.parse(match ? match[1] : txt.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, ''));
+      if (!json || json.status === 'error' || !json.table || !Array.isArray(json.table.rows)) return [];
+      return json.table.rows;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  async function buildDbV18(force = false) {
+    if (dbV18 && !force) return dbV18;
+    if (loadingV18 && !force) return loadingV18;
+
+    loadingV18 = (async () => {
+      const db = {
+        partToRoot: {},     // cleanPart -> cleanRoot
+        rootToParts: {},    // cleanRoot -> array of cleanPart
+        stockByPart: {},    // cleanPart -> { partNo, rootNo, qty, bin }
+        exactOrders: {}     // cleanPart -> { partNo, status, qty } (EXACT PART ONLY)
+      };
+
+      const linkRoot = (partRaw, rootRaw) => {
+        const pK = norm(partRaw);
+        const rK = norm(rootRaw);
+        if (pK.length < 6) return;
+        const rootKey = rK.length >= 6 ? rK : pK;
+        db.partToRoot[pK] = rootKey;
+        if (!db.rootToParts[rootKey]) db.rootToParts[rootKey] = [];
+        if (!db.rootToParts[rootKey].includes(pK)) {
+          db.rootToParts[rootKey].push(pK);
+        }
+      };
+
+      const setExactOrder = (partRaw, status, qty) => {
+        const pK = norm(partRaw);
+        const q = Number(qty) || 0;
+        if (pK.length < 6 || q <= 0) return;
+        if (!db.exactOrders[pK]) {
+          db.exactOrders[pK] = {
+            partNo: String(partRaw).trim().toUpperCase(),
+            status,
+            qty: q
+          };
+        }
+      };
+
+      const [stockRows, oldNewRows, orderStatusRows] = await Promise.all([
+        readSheetGviz('STOCK'),
+        readSheetGviz('OLD,NEW PART'),
+        readSheetGviz('ORDER PARTS STATUS')
+      ]);
+
+      // 1. STOCK sheet:
+      // Col A (0)=Part number, Col B (1)=Root Part Num, Col F (5)=Current Stock, Col G (6)=Bin Location
+      // Col I (8)=B/O, Col J (9)=ALLO, Col K (10)=U/P, Col L (11)=INV
+      (stockRows || []).forEach(row => {
+        const c = row.c || [];
+        const val = i => (c[i] && (c[i].v ?? c[i].f)) ?? '';
+        const partRaw = String(val(0) || val(12) || '').trim().toUpperCase();
+        const rootRaw = String(val(1) || '').trim().toUpperCase();
+        const pK = norm(partRaw);
+        if (pK.length < 6) return;
+
+        linkRoot(partRaw, rootRaw);
+
+        const qty = Number(String(val(5) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+        const bin = String(val(6) || 'NOBIN').trim().toUpperCase() || 'NOBIN';
+        if (!db.stockByPart[pK] || qty > db.stockByPart[pK].qty) {
+          db.stockByPart[pK] = { partNo: partRaw, rootNo: rootRaw, qty, bin };
+        }
+
+        // Exact-part order pipeline from STOCK columns (INV > U/P > ALLO > B/O)
+        const inv = Number(String(val(11) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+        const up = Number(String(val(10) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+        const allo = Number(String(val(9) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+        const bo = Number(String(val(8) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+
+        if (inv > 0) setExactOrder(partRaw, 'INVOICE', inv);
+        else if (up > 0) setExactOrder(partRaw, 'UNDER PICKING', up);
+        else if (allo > 0) setExactOrder(partRaw, 'ALLOCATION', allo);
+        else if (bo > 0) setExactOrder(partRaw, 'BACK ORDER', bo);
+      });
+
+      // 2. OLD,NEW PART sheet:
+      // Col A (0)=PART_NUM, Col B (1)=ROOT_PART_NUM, Col F (5)=BIN_LOCATION, Col J (9)=CURRENT STOCK
+      (oldNewRows || []).forEach(row => {
+        const c = row.c || [];
+        const val = i => (c[i] && (c[i].v ?? c[i].f)) ?? '';
+        const partRaw = String(val(0) || '').trim().toUpperCase();
+        const rootRaw = String(val(1) || '').trim().toUpperCase();
+        const pK = norm(partRaw);
+        if (pK.length < 6) return;
+
+        linkRoot(partRaw, rootRaw);
+
+        const bin = String(val(5) || 'NOBIN').trim().toUpperCase() || 'NOBIN';
+        const qty = Number(String(val(9) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+        if (!db.stockByPart[pK] && qty > 0) {
+          db.stockByPart[pK] = { partNo: partRaw, rootNo: rootRaw, qty, bin };
+        } else if (db.stockByPart[pK] && db.stockByPart[pK].qty === 0 && qty > 0) {
+          db.stockByPart[pK].qty = qty;
+          if (bin !== 'NOBIN') db.stockByPart[pK].bin = bin;
+        }
+      });
+
+      // 3. ORDER PARTS STATUS sheet (EXACT PART MATCH ONLY)
+      (orderStatusRows || []).forEach(row => {
+        const c = row.c || [];
+        const val = i => (c[i] && (c[i].v ?? c[i].f)) ?? '';
+        const cells = c.map((_, i) => String(val(i) ?? '').trim().toUpperCase());
+        let pCode = '';
+        let statusText = '';
+        let qty = 0;
+
+        cells.forEach((s, idx) => {
+          if (!pCode && PART_RE.test(s) && s.length <= 22) {
+            const m = s.match(PART_RE);
+            if (m) pCode = m[1].toUpperCase();
+          }
+          if (!statusText && (s.includes('BACK') || s.includes('ALLOC') || s.includes('PICK') || s.includes('INVOIC') || s.includes('TRANSIT') || s.includes('DISPATCH'))) {
+            statusText = s;
+          }
+          if (idx >= 3 && idx <= 10 && qty === 0) {
+            const n = Number(s.replace(/[^0-9.-]/g, ''));
+            if (!isNaN(n) && n > 0 && n < 50000 && s.length <= 7) qty = n;
+          }
+        });
+
+        if (pCode && statusText) {
+          setExactOrder(pCode, statusText, qty || 1);
+        }
+      });
+
+      dbV18 = db;
+      loadingV18 = null;
+      return db;
+    })();
+
+    return loadingV18;
+  }
+
+  function resolveV18(rawPart, db) {
+    const baseK = norm(rawPart);
+    if (!baseK || baseK.length < 6 || !db) return null;
+
+    // RULE 1: IN STOCK -> Match via Exact Part OR Exact Root Part Number
+    const rootK = db.partToRoot[baseK] || (db.rootToParts[baseK] ? baseK : '');
+    const rootGroup = [];
+    if (rootK && Array.isArray(db.rootToParts[rootK])) {
+      db.rootToParts[rootK].forEach(pk => {
+        if (!rootGroup.includes(pk)) rootGroup.push(pk);
+      });
+    }
+    if (!rootGroup.includes(baseK)) rootGroup.unshift(baseK);
+
+    let bestStock = null;
+    for (const pk of rootGroup) {
+      const s = db.stockByPart[pk];
+      if (s && s.qty > 0) {
+        const viaRoot = pk !== baseK;
+        if (!bestStock || (!viaRoot && bestStock.viaRoot) || (viaRoot === bestStock.viaRoot && s.qty > bestStock.qty)) {
+          bestStock = { ...s, viaRoot };
+        }
+      }
+    }
+    if (bestStock) {
+      return { kind: 'STOCK', info: bestStock };
+    }
+
+    // RULE 2: ORDER STATUS -> Match ONLY Exact Part Number (no root match for orders)
+    const exactOrd = db.exactOrders[baseK] || null;
+    if (exactOrd) {
+      return { kind: 'ORDER', info: exactOrd };
+    }
+
+    return null;
+  }
+
+  function findRowPart(el) {
+    let cur = el.parentElement;
+    for (let d = 0; d < 5 && cur; d++) {
+      const txt = String(cur.textContent || '');
+      if (txt.includes('Battery & Tyre Conversion') || txt.includes('Choose file')) return '';
+      const m = txt.match(PART_RE);
+      if (m) return m[1].toUpperCase();
+      cur = cur.parentElement;
+    }
+    return '';
+  }
+
+  async function syncBadgesV18(force = false) {
+    const db = await buildDbV18(force);
+    const els = document.querySelectorAll('span, div, button, a, b, strong');
+
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i];
+      if (el.children.length > 2) continue;
+
+      const rawText = String(el.textContent || '').trim();
+      if (!rawText || rawText.length > 95) continue;
+      const up = rawText.toUpperCase();
+
+      const isBadge =
+        up.includes('PENDING') ||
+        up.includes('NOT ORDERED') ||
+        up.includes('IN STOCK') ||
+        up.includes('BACK ORDER') ||
+        up.includes('ALLOCATION') ||
+        up.includes('INVOICE') ||
+        up.includes('UNDER PICKING');
+
+      if (!isBadge) continue;
+      if (up.includes('BIN LOCATION:') || up.includes('DISPATCHED')) continue;
+
+      const rowPart = findRowPart(el);
+      if (!rowPart) continue;
+      if (norm(rowPart) === '09262M30182' && up.includes('5 NOS')) continue;
+
+      const hit = resolveV18(rowPart, db);
+      if (hit && hit.kind === 'STOCK') {
+        const s = hit.info;
+        const prefix = s.viaRoot ? `Root (${s.partNo}) · ` : '';
+        const nextText = `${prefix}IN STOCK · Part: ${s.partNo} · Qty: ${s.qty} (${s.bin})`;
+        if (rawText !== nextText) {
+          el.textContent = nextText;
+          el.style.background = '#dcfce7';
+          el.style.color = '#15803d';
+          el.style.fontWeight = '800';
+        }
+      } else if (hit && hit.kind === 'ORDER') {
+        const o = hit.info;
+        const nextText = `${o.status} · Part: ${o.partNo} · Qty: ${o.qty}`;
+        if (rawText !== nextText) {
+          el.textContent = nextText;
+          el.style.background = o.status.includes('INVOICE') ? '#dbeafe' : '#ffedd5';
+          el.style.color = o.status.includes('INVOICE') ? '#1d4ed8' : '#c2410c';
+          el.style.fontWeight = '800';
+        }
+      }
+    }
+  }
+
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const label = String(btn.textContent || '').toUpperCase();
+    if (label.includes('REFRESH')) {
+      setTimeout(() => syncBadgesV18(true), 250);
+    } else if (label.includes('ADVISOR') || label.includes('STOCK') || label.includes('SAVE & TRACK')) {
+      setTimeout(() => syncBadgesV18(false), 250);
+    }
+  });
+
+  setTimeout(() => syncBadgesV18(true), 600);
+  setInterval(() => syncBadgesV18(false), 2200);
+})();
+    
   </script>
 </body></html>
