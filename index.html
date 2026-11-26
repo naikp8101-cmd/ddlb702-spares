@@ -3030,6 +3030,361 @@ const detailsHTML = Object.entries(item.details || {})
   setTimeout(() => syncBadgesV19(true), 650);
   setInterval(() => syncBadgesV19(false), 2200);
 })();
-      
+      // =========================================================================
+// ADVISOR BADGE SYNC V20: PRESERVE PART NUMBER + EXACT ROOT STOCK / ORDER
+// =========================================================================
+(function initAdvisorCleanRootV20() {
+  if (window.__advCleanRootV20) return;
+  window.__advCleanRootV20 = true;
+
+  for (let id = 1; id < 900; id++) {
+    try { clearInterval(id); } catch (e) {}
+  }
+
+  const SHEET_ID = '19bELBOFlKfhfmEiwcuOOGaceplB90oULBD0eT8-vBbg';
+  const norm = v => String(v || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const PART_RE = /\b([0-9A-Z]{4,}[M\-][0-9A-Z\-]{1,}[A-Z0-9\-]*|[0-9]{5}[A-Z0-9]{3,10})\b/i;
+
+  let dbV20 = null;
+  let inflightV20 = null;
+
+  async function readTab(sheetName) {
+    try {
+      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      const txt = await res.text();
+      const match = txt.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/);
+      const json = JSON.parse(match ? match[1] : txt.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, ''));
+      if (!json || json.status === 'error' || !json.table || !Array.isArray(json.table.rows)) return [];
+      return json.table.rows;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function harvestAppData(db, linkRoot, addStock, setOrder) {
+    const stockTab = document.getElementById('tab-stock');
+    if (stockTab) {
+      stockTab.querySelectorAll('.card, [style*="border"]').forEach(card => {
+        const txt = String(card.textContent || '');
+        const codes = Array.from(new Set((txt.match(new RegExp(PART_RE.source, 'gi')) || []).map(x => x.trim().toUpperCase())));
+        if (!codes.length) return;
+        const rootMatch = txt.match(/ROOT[\s:]*([0-9A-Z\-]+)/i);
+        const stkMatch = txt.match(/STOCK[\s\n:]*([0-9]+)/i);
+        const binMatch = txt.match(/\b(G[A-Z0-9]{4,7}|NOBIN)\b/i);
+        const qty = stkMatch ? Number(stkMatch[1]) : 0;
+        const bin = binMatch ? binMatch[1].toUpperCase() : 'NOBIN';
+        const rootVal = rootMatch ? rootMatch[1].toUpperCase() : '';
+        codes.forEach(c => {
+          if (rootVal) linkRoot(c, rootVal);
+          addStock(c, rootVal, qty, bin);
+        });
+      });
+    }
+
+    [window.localStorage, window.sessionStorage].forEach(st => {
+      if (!st) return;
+      for (let i = 0; i < st.length; i++) {
+        const key = st.key(i) || '';
+        if (key.includes('ddlb702_fast_db')) continue;
+        try {
+          const parsed = JSON.parse(st.getItem(key) || 'null');
+          const walk = obj => {
+            if (!obj) return;
+            if (Array.isArray(obj)) {
+              obj.forEach(walk);
+              return;
+            }
+            if (typeof obj === 'object') {
+              const p = obj.partNo || obj.partNumber || obj.part || obj.code || obj.PART_NUM || '';
+              const r = obj.root || obj.rootPart || obj.rootNo || obj.ROOT_PART_NUM || '';
+              const q = obj.qty ?? obj.stock ?? obj.bal ?? obj.balance ?? obj.CURRENT_STOCK ?? '';
+              const b = obj.bin || obj.binNo || obj.BIN_LOCATION || 'NOBIN';
+              if (p && r) linkRoot(p, r);
+              if (p && q !== '') addStock(p, r, q, b);
+
+              const bo = obj.bo ?? obj['B/O'] ?? 0;
+              const allo = obj.allo ?? obj.ALLO ?? 0;
+              const up = obj.up ?? obj['U/P'] ?? 0;
+              const inv = obj.inv ?? obj.INV ?? 0;
+              if (p && Number(inv) > 0) setOrder(p, 'INVOICE', inv);
+              else if (p && Number(up) > 0) setOrder(p, 'UNDER PICKING', up);
+              else if (p && Number(allo) > 0) setOrder(p, 'ALLOCATION', allo);
+              else if (p && Number(bo) > 0) setOrder(p, 'BACK ORDER', bo);
+
+              Object.values(obj).forEach(v => {
+                if (v && typeof v === 'object') walk(v);
+              });
+            }
+          };
+          walk(parsed);
+        } catch (e) {}
+      }
+    });
+  }
+
+  async function buildDbV20(force = false) {
+    if (dbV20 && !force) return dbV20;
+    if (inflightV20 && !force) return inflightV20;
+
+    inflightV20 = (async () => {
+      const db = {
+        partToRoot: {},
+        rootToParts: {},
+        stockByPart: {},
+        exactOrders: {}
+      };
+
+      const linkRoot = (partRaw, rootRaw) => {
+        const pK = norm(partRaw);
+        const rK = norm(rootRaw);
+        if (pK.length < 6 || rK.length < 6) return;
+        db.partToRoot[pK] = rK;
+        if (!db.rootToParts[rK]) db.rootToParts[rK] = [];
+        if (!db.rootToParts[rK].includes(pK)) db.rootToParts[rK].push(pK);
+      };
+
+      const addStock = (partRaw, rootRaw, qtyRaw, binRaw) => {
+        const pK = norm(partRaw);
+        if (pK.length < 6) return;
+        const qty = Number(String(qtyRaw ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+        const bin = String(binRaw || 'NOBIN').trim().toUpperCase() || 'NOBIN';
+        const partStr = String(partRaw || '').trim().toUpperCase();
+        const rootStr = String(rootRaw || '').trim().toUpperCase();
+        if (rootStr) linkRoot(partStr, rootStr);
+        if (!db.stockByPart[pK] || qty > db.stockByPart[pK].qty) {
+          db.stockByPart[pK] = { partNo: partStr, rootNo: rootStr, qty, bin };
+        } else if (db.stockByPart[pK].bin === 'NOBIN' && bin !== 'NOBIN') {
+          db.stockByPart[pK].bin = bin;
+        }
+      };
+
+      const setOrder = (partRaw, status, qtyRaw) => {
+        const pK = norm(partRaw);
+        const qty = Number(String(qtyRaw ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+        if (pK.length < 6 || qty <= 0) return;
+        if (!db.exactOrders[pK]) {
+          db.exactOrders[pK] = {
+            partNo: String(partRaw || '').trim().toUpperCase(),
+            status,
+            qty
+          };
+        }
+      };
+
+      harvestAppData(db, linkRoot, addStock, setOrder);
+
+      const [stockRows, oldNewRows, allPartsRows, orderStatusRows] = await Promise.all([
+        readTab('STOCK'),
+        readTab('OLD,NEW PART'),
+        readTab('ALL PARTS'),
+        readTab('ORDER PARTS STATUS')
+      ]);
+
+      (stockRows || []).forEach(row => {
+        const c = row.c || [];
+        const val = i => (c[i] && (c[i].v ?? c[i].f)) ?? '';
+        const partRaw = String(val(0) || val(12) || '').trim().toUpperCase();
+        const rootRaw = String(val(1) || '').trim().toUpperCase();
+        if (norm(partRaw).length >= 6) {
+          addStock(partRaw, rootRaw, val(5), val(6));
+          const inv = Number(String(val(11) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+          const up = Number(String(val(10) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+          const allo = Number(String(val(9) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+          const bo = Number(String(val(8) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+          if (inv > 0) setOrder(partRaw, 'INVOICE', inv);
+          else if (up > 0) setOrder(partRaw, 'UNDER PICKING', up);
+          else if (allo > 0) setOrder(partRaw, 'ALLOCATION', allo);
+          else if (bo > 0) setOrder(partRaw, 'BACK ORDER', bo);
+        }
+      });
+
+      (oldNewRows || []).forEach(row => {
+        const c = row.c || [];
+        const val = i => (c[i] && (c[i].v ?? c[i].f)) ?? '';
+        const partRaw = String(val(0) || '').trim().toUpperCase();
+        const rootRaw = String(val(1) || '').trim().toUpperCase();
+        if (norm(partRaw).length >= 6) {
+          linkRoot(partRaw, rootRaw);
+          const qty = Number(String(val(9) ?? 0).replace(/[^0-9.-]/g, '')) || 0;
+          const bin = String(val(5) || 'NOBIN').trim().toUpperCase() || 'NOBIN';
+          if (qty > 0) addStock(partRaw, rootRaw, qty, bin);
+        }
+      });
+
+      (allPartsRows || []).forEach(row => {
+        const c = row.c || [];
+        const val = i => (c[i] && (c[i].v ?? c[i].f)) ?? '';
+        const partRaw = String(val(0) || '').trim().toUpperCase();
+        const rootRaw = String(val(1) || '').trim().toUpperCase();
+        if (norm(partRaw).length >= 6 && norm(rootRaw).length >= 6) {
+          linkRoot(partRaw, rootRaw);
+        }
+      });
+
+      (orderStatusRows || []).forEach(row => {
+        const c = row.c || [];
+        const val = i => (c[i] && (c[i].v ?? c[i].f)) ?? '';
+        const cells = c.map((_, i) => String(val(i) ?? '').trim().toUpperCase());
+        let pCode = '';
+        let statusText = '';
+        let qty = 0;
+        cells.forEach((s, idx) => {
+          if (!pCode && PART_RE.test(s) && s.length <= 24) {
+            const m = s.match(PART_RE);
+            if (m) pCode = m[1].toUpperCase();
+          }
+          if (!statusText && (s.includes('BACK') || s.includes('ALLOC') || s.includes('PICK') || s.includes('INVOIC') || s.includes('TRANSIT') || s.includes('DISPATCH'))) {
+            statusText = s;
+          }
+          if (idx >= 3 && idx <= 10 && qty === 0) {
+            const n = Number(s.replace(/[^0-9.-]/g, ''));
+            if (!isNaN(n) && n > 0 && n < 50000 && s.length <= 7) qty = n;
+          }
+        });
+        if (pCode && statusText) setOrder(pCode, statusText, qty || 1);
+      });
+
+      dbV20 = db;
+      inflightV20 = null;
+      return db;
+    })();
+
+    return inflightV20;
+  }
+
+  function resolveV20(rawPart, db) {
+    const baseK = norm(rawPart);
+    if (!baseK || baseK.length < 6 || !db) return null;
+
+    // 1. IN STOCK -> Exact Part OR Exact Root Match
+    const rootK = db.partToRoot[baseK] || (db.rootToParts[baseK] ? baseK : '');
+    const group = [];
+    if (rootK && Array.isArray(db.rootToParts[rootK])) {
+      db.rootToParts[rootK].forEach(pk => {
+        if (!group.includes(pk)) group.push(pk);
+      });
+    }
+    if (!group.includes(baseK)) group.unshift(baseK);
+
+    let bestStock = null;
+    for (const pk of group) {
+      const s = db.stockByPart[pk];
+      if (s && s.qty > 0) {
+        const viaRoot = pk !== baseK;
+        if (!bestStock || (!viaRoot && bestStock.viaRoot) || (viaRoot === bestStock.viaRoot && s.qty > bestStock.qty)) {
+          bestStock = { ...s, viaRoot };
+        }
+      }
+    }
+    if (bestStock) return { kind: 'STOCK', info: bestStock };
+
+    // 2. ORDER STATUS -> Exact Part Match ONLY
+    if (db.exactOrders[baseK]) {
+      return { kind: 'ORDER', info: db.exactOrders[baseK] };
+    }
+
+    return null;
+  }
+
+  // Strictly match part numbers like "86. 12361M86J20" or "87. 12351M68LZ0-0A0" in row header
+  function getRowPartV20(badgeEl) {
+    let cur = badgeEl.parentElement;
+    for (let d = 0; d < 5 && cur; d++) {
+      const nodes = cur.querySelectorAll('span, div, b, strong, p');
+      for (let j = 0; j < nodes.length; j++) {
+        const t = String(nodes[j].textContent || '').trim();
+        if (!t || t.length > 45) continue;
+        const up = t.toUpperCase();
+        if (up.includes('IN STOCK') || up.includes('PENDING') || up.includes('VEHICLE') || up.includes('BIN LOCATION')) continue;
+        const m = up.match(/^(?:\d+\.\s*)?([0-9A-Z]{5,}[M\-][0-9A-Z\-]{1,}[A-Z0-9\-]*|[0-9]{5}[A-Z0-9]{3,10})$/);
+        if (m) return m[1];
+      }
+      cur = cur.parentElement;
+    }
+    return '';
+  }
+
+  // Target ONLY small status badge elements (never a large container that holds part number + description)
+  function isSmallStatusBadge(el) {
+    if (!el || el.children.length > 2) return false;
+    const raw = String(el.textContent || '').trim();
+    if (!raw || raw.length > 75) return false;
+    const up = raw.toUpperCase();
+    if (up.includes('VEHICLE') || up.includes('BIN LOCATION:') || up.includes('BEARING') || up.includes('SEAL ') || up.includes('CRANKSHAFT')) {
+      return false;
+    }
+    return (
+      up.includes('PENDING') ||
+      up.includes('NOT ORDERED') ||
+      up.includes('IN STOCK') ||
+      up.includes('BACK ORDER') ||
+      up.includes('ALLOCATION') ||
+      up.includes('INVOICE') ||
+      up.includes('UNDER PICKING')
+    );
+  }
+
+  async function syncBadgesV20(force = false) {
+    const db = await buildDbV20(force);
+    const els = document.querySelectorAll('span, div, button, a, b, strong');
+
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i];
+      if (!isSmallStatusBadge(el)) continue;
+
+      const rawText = String(el.textContent || '').trim();
+      const up = rawText.toUpperCase();
+      if (up.includes('DISPATCHED')) continue;
+
+      const rowPart = getRowPartV20(el);
+      if (!rowPart) continue;
+      if (norm(rowPart) === '09262M30182' && up.includes('5 NOS')) continue;
+
+      const hit = resolveV20(rowPart, db);
+      if (hit && hit.kind === 'STOCK') {
+        const s = hit.info;
+        const prefix = s.viaRoot ? `Root (${s.partNo}) · ` : '';
+        const nextText = `${prefix}IN STOCK · Part: ${s.partNo} · Qty: ${s.qty} (${s.bin})`;
+        if (rawText !== nextText) {
+          el.textContent = nextText;
+          el.style.background = '#dcfce7';
+          el.style.color = '#15803d';
+          el.style.fontWeight = '800';
+        }
+      } else if (hit && hit.kind === 'ORDER') {
+        const o = hit.info;
+        const nextText = `${o.status} · Part: ${o.partNo} · Qty: ${o.qty}`;
+        if (rawText !== nextText) {
+          el.textContent = nextText;
+          el.style.background = o.status.includes('INVOICE') ? '#dbeafe' : '#ffedd5';
+          el.style.color = o.status.includes('INVOICE') ? '#1d4ed8' : '#c2410c';
+          el.style.fontWeight = '800';
+        }
+      } else if (up.includes('IN STOCK · PART:') && norm(rowPart) !== norm(up.split('PART:')[1] || '')) {
+        el.textContent = 'PENDING / NOT ORDERED';
+        el.style.background = '#fee2e2';
+        el.style.color = '#b91c1c';
+        el.style.fontWeight = '700';
+      }
+    }
+  }
+
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const label = String(btn.textContent || '').toUpperCase();
+    if (label.includes('REFRESH')) {
+      setTimeout(() => syncBadgesV20(true), 250);
+    } else if (label.includes('ADVISOR') || label.includes('STOCK') || label.includes('SAVE & TRACK')) {
+      setTimeout(() => syncBadgesV20(false), 250);
+    }
+  });
+
+  setTimeout(() => syncBadgesV20(true), 650);
+  setInterval(() => syncBadgesV20(false), 2200);
+})();
+            
   </script>
 </body></html>
